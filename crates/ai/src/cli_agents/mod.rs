@@ -1346,7 +1346,9 @@ mod tests {
             assert_eq!(find_program_in("claude", path(&[&link_dir, cli_dir])), Some(cli.clone()), "the link is passed over");
             assert_eq!(program_in(&claude, &none, path(&[&link_dir, cli_dir])).unwrap(), real);
             assert_eq!(program_in(&claude, &none, path(&[&link_dir])).unwrap_err().code, ErrorCode::EngineMissing);
-            assert_eq!(program_in(&claude, &saved(&link.display().to_string()), path(&[cli_dir])).unwrap(), real, "a saved link to the app");
+            let saved_link = saved(&link.display().to_string());
+            assert_eq!(program_in(&claude, &saved_link, path(&[cli_dir])).unwrap(), "claude", "a saved link to the app: the name starts the real one");
+            assert_eq!(program_in(&claude, &saved_link, path(&[app_dir, cli_dir])).unwrap(), real, "a saved link to the app, the app first");
         }
         // Another agent's program in such a folder is only filtered for Claude.
         let other = app_dir.join(if cfg!(windows) { "codex.exe" } else { "codex" });
