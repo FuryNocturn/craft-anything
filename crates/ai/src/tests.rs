@@ -917,7 +917,7 @@ fn a_server_that_was_reached_but_slow_is_told_to_wait() {
         std::thread::sleep(Duration::from_secs(10));
         drop(held);
     });
-    let e = h.add_server_within("Slow box", &url, None, None, Duration::from_secs(2)).unwrap_err();
+    let e = h.add_server_within("Slow box", &url, None, None, Duration::from_secs(2), &Default::default()).unwrap_err();
     assert_eq!(e.code, ErrorCode::TimedOut, "{e:?}");
     let advice = e.remediation.clone().unwrap_or_default();
     assert!(advice.contains("was reached") && advice.contains("2 seconds") && advice.contains("loading a model"), "{advice}");
@@ -928,6 +928,32 @@ fn a_server_that_was_reached_but_slow_is_told_to_wait() {
     let e = h.add_server("Nobody", "http://127.0.0.1:0/v1", None, None).unwrap_err();
     let advice = e.remediation.clone().unwrap_or_default();
     assert!(advice.contains("Check the address") && !advice.contains(&e.message), "{advice}");
+}
+
+/// #1429: adding a server that was reached but doesn't answer can be stopped while it's asked,
+/// instead of waiting out the minute, and nothing is added.
+#[test]
+fn adding_a_slow_server_can_be_stopped() {
+    let (h, _d) = hub();
+    let l = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/v1", l.local_addr().unwrap());
+    std::thread::spawn(move || {
+        let held: Vec<_> = l.incoming().take(1).flatten().collect();
+        std::thread::sleep(Duration::from_secs(10));
+        drop(held);
+    });
+    let cancel = craft_anything_engine::CancelToken::default();
+    let later = cancel.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(300));
+        later.cancel();
+    });
+    let started = std::time::Instant::now();
+    let e = h.add_server_until("Slow box", &url, None, None, &cancel).unwrap_err();
+    assert_eq!(e.code, ErrorCode::Cancelled, "{e:?}");
+    assert!(started.elapsed() < Duration::from_secs(5), "stopped at once, not after the wait: {:?}", started.elapsed());
+    assert!(e.remediation.is_none(), "a stop isn't a bad address: {e:?}");
+    assert!(h.backends().is_empty(), "nothing added");
 }
 
 #[test]

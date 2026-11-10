@@ -1463,6 +1463,7 @@ Couldn't change the approvals:	Onaylar değiştirilemedi:
 What the builder may do without asking you, in this project.	Oluşturucunun bu projede size sormadan yapabilecekleri.
 Default follows Auto mode: with it on, what can be undone goes ahead and the rest is refused; with it off, the builder asks.	Varsayılan, otomatik modu izler: açıkken geri alınabilenler yapılır, gerisi reddedilir; kapalıyken oluşturucu sorar.
 Connecting to {name}… {seconds} s	{name} sunucusuna bağlanılıyor… {seconds} sn
+Stopped adding {name}.	{name} eklenmesi durduruldu.
 Add an agent by its program	Bir ajanı programıyla ekle
 For a coding agent installed somewhere we don't look.	Bakmadığımız bir yere kurulmuş bir kodlama ajanı için.
 Choose an agent	Bir ajan seçin
