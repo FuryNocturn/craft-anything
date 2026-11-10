@@ -21,6 +21,7 @@ pub mod model;
 pub mod model_options;
 pub mod model_tools;
 pub mod openai;
+mod pace;
 pub mod price;
 pub mod prompt;
 pub mod providers;
@@ -35,7 +36,7 @@ pub use model::Effort;
 
 use crate::agent::{ApiConversation, EngineHost, LoopConfig, ModelSlot};
 use crate::model::{ChatModel, Delta, Msg, Stop, TurnRequest, TurnResult};
-use craft_anything_engine::{Engine, Settings};
+use craft_anything_engine::{CancelToken, Engine, Settings};
 use craft_anything_evidence::{ErrorCode, ToolError};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -171,6 +172,26 @@ fn compatible_client(name: &str, base: &str, key: Option<String>, model: &str, s
 
 /// Where OpenCode Go lists its models: the chat base ends in `/openai/v1`, while the list answers at
 /// the same service root with `/v1` (https://opencode.ai/inference/go/v1/models).
+/// Run a blocking request on a helper thread and wait for its answer, giving up as soon as `cancel`
+/// is set. A request given up on ends by itself when its own time limits run out.
+fn until_cancelled<T: Send + 'static>(cancel: &CancelToken, ask: impl FnOnce() -> Result<T, ToolError> + Send + 'static) -> Result<T, ToolError> {
+    let (send, answer) = std::sync::mpsc::channel();
+    std::thread::Builder::new()
+        .name("ask-server".into())
+        .spawn(move || {
+            let _ = send.send(ask());
+        })
+        .map_err(|e| ToolError::internal(format!("Couldn't start asking the server: {e}")))?;
+    loop {
+        cancel.check()?;
+        match answer.recv_timeout(Duration::from_millis(100)) {
+            Ok(result) => return result,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return Err(ToolError::internal("Asking the server stopped without an answer.")),
+        }
+    }
+}
+
 fn opencode_go_models_base(base: &str) -> String {
     let base = base.trim_end_matches('/');
     match base.strip_suffix("/openai/v1") {
@@ -505,11 +526,25 @@ impl AiHub {
     /// can chat. Returns the model. Anthropic's own
     /// address is added as an Anthropic backend, as its API isn't OpenAI's.
     pub fn add_server(&self, name: &str, address: &str, model: Option<&str>, key: Option<String>) -> Result<String, ToolError> {
-        self.add_server_within(name, address, model, key, SERVER_ANSWER_WAIT)
+        self.add_server_within(name, address, model, key, SERVER_ANSWER_WAIT, &CancelToken::default())
+    }
+
+    /// [`AiHub::add_server`], given up as soon as `cancel` is set, even while the server is still
+    /// being asked for its models: a person can stop waiting for one that is slow to answer (#1429).
+    pub fn add_server_until(&self, name: &str, address: &str, model: Option<&str>, key: Option<String>, cancel: &CancelToken) -> Result<String, ToolError> {
+        self.add_server_within(name, address, model, key, SERVER_ANSWER_WAIT, cancel)
     }
 
     /// [`AiHub::add_server`], waiting `wait` for the server to list its models once reached.
-    fn add_server_within(&self, name: &str, address: &str, model: Option<&str>, key: Option<String>, wait: Duration) -> Result<String, ToolError> {
+    fn add_server_within(
+        &self,
+        name: &str,
+        address: &str,
+        model: Option<&str>,
+        key: Option<String>,
+        wait: Duration,
+        cancel: &CancelToken,
+    ) -> Result<String, ToolError> {
         let name = name.trim();
         let address = address.trim().trim_end_matches('/');
         if name.is_empty() {
@@ -521,14 +556,20 @@ impl AiHub {
         }
         let key = key.map(|k| k.trim().to_string()).filter(|k| !k.is_empty());
         let kind = if anthropic::is_anthropic_api(address) { BackendKind::Anthropic } else { BackendKind::OpenaiCompatible };
-        let listed = if kind == BackendKind::Anthropic {
-            anthropic::Anthropic::new(Some(address), key.clone().unwrap_or_default(), "").list_models(Duration::from_secs(10))
-        } else {
-            // OpenCode Go lists its models at /v1, not under the chat path a person would paste.
-            let probe = if openai::is_opencode_go(address) { opencode_go_models_base(address) } else { address.to_string() };
-            openai::OpenAi::compatible(name, &probe, key.clone(), "").list_models_within(SERVER_CONNECT_WAIT, wait)
-        };
+        let (asked_name, asked_address, asked_key) = (name.to_string(), address.to_string(), key.clone());
+        let listed = until_cancelled(cancel, move || {
+            if kind == BackendKind::Anthropic {
+                anthropic::Anthropic::new(Some(&asked_address), asked_key.unwrap_or_default(), "").list_models(Duration::from_secs(10))
+            } else {
+                // OpenCode Go lists its models at /v1, not under the chat path a person would paste.
+                let probe = if openai::is_opencode_go(&asked_address) { opencode_go_models_base(&asked_address) } else { asked_address };
+                openai::OpenAi::compatible(&asked_name, &probe, asked_key, "").list_models_within(SERVER_CONNECT_WAIT, wait)
+            }
+        });
         let models = listed.map_err(|e| {
+            if e.code == ErrorCode::Cancelled {
+                return e;
+            }
             // A server that took the request has the right address: it may still be starting, or
             // loading a model before it answers (#1429).
             if http::was_reached(&e) {
@@ -545,6 +586,7 @@ impl AiHub {
         // With no model named, one the server has loaded comes first: its `/models` may be a
         // download catalogue, and the first entry there may start a download and unload the
         // model in use (#1434).
+        cancel.check()?;
         let loaded = || {
             if kind == BackendKind::Anthropic || openai::is_opencode_go(address) {
                 return None;
@@ -912,6 +954,10 @@ impl AiHub {
         };
         let model = match tunnel {
             Some(t) => Box::new(Tunneled { inner: model, _tunnel: t }) as Box<dyn ChatModel>,
+            None => model,
+        };
+        let model = match pace::gap(e.options.requests_per_minute) {
+            Some(gap) => Box::new(pace::Paced { inner: model, backend: c.name.clone(), gap }) as Box<dyn ChatModel>,
             None => model,
         };
         Ok(ModelSlot {

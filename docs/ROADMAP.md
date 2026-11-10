@@ -360,6 +360,15 @@ Every round spends the person's money or quota. One that can't do anything shoul
       exit. A wall or idle deadline that fires during that grace period (the result was already
       parsed) counts as completion, not a failure; a deadline with no parsed result still stops the
       turn as before — claimed: mytrade2909-design, branch bugfix/builder-stuck-after-turn-completes, PR #1426
+- [x] A program that's stopped (time limit, pause, or leftovers after it exits) is waited for
+      only 5 s: stopping it used a wait with no limit, the one step of a run that neither its time
+      limit nor Pause could reach (#1438, #981: a check that sits for hours with Pause dead). Found
+      by reading the code; the reporters' hangs are not reproduced here
+      — claimed: justinjohn0306, branch bugfix/r5.3-stopped-program-wait
+- [ ] Confirm on a reporter's Windows machine that #1438 / #981 no longer sit at a check (their
+      `build-activity.log` after the stall, and whether "still there 5 s after it was stopped" is
+      in the app's log). `Launched::stop` (Play) and the console capture still use the same
+      unlimited `kill()`
 
 ### R5.4 Local models can build
 Owner: open · Status: todo
@@ -472,6 +481,11 @@ been run live.
       for the window read from the server (#1155)
 - [x] A per-backend context budget in `[[ai.backends]]` (`LoopConfig::context_tokens` exists), for
       services whose real window differs from 150k (#374) — implementation: `6bd94b84828ec89b805cb8a246f557d0a778c037`
+- [x] A per-backend request rate in `[[ai.backends]]`, for services that limit requests per
+      second or minute (#668): `requests_per_minute`, shared by every conversation on the backend.
+      Not run against a live provider — claimed: justinjohn0306, branch `feature/r5.4-requests-per-minute`
+- [ ] Offer `requests_per_minute` in Settings → AI, and say in the feed when a build is waiting
+      for its turn (#668); a tokens-per-minute limit isn't covered either
 - [x] Find LM Studio on another port (#73): the port in its settings file (when it is there) and
       the ports 1235-1239 are probed like the usual servers; OpenCode's own `baseURL`s were already
       read (#83)
@@ -512,8 +526,10 @@ been run live.
       (#1429): show "Connecting to <name>…" with a spinner and the seconds waited, wait a minute,
       and give advice for a server that was reached
       — claimed: jgt87, branch bugfix/r5.4-add-server-connecting — PR #1430
-- [ ] Let a person stop adding a server while it's asked for its models (#1429): the request runs
-      in a blocking call that doesn't check the job's cancel, so the wait can only run out
+- [x] Let a person stop adding a server while it's asked for its models (#1429): the request runs
+      on a helper thread and the wait checks the job's cancel, so Stop beside "Connecting to…"
+      ends it at once (`AiHub::add_server_until`); the request given up on ends by its own limits
+      — claimed: FuryNocturn, branch bugfix/r5.4-stop-adding-a-server
 
 ### R5.5 API-key builds fail in words people can use
 Owner: open · Status: todo
@@ -686,6 +702,12 @@ Owner: maintainers · Status: in progress
       environment variables, #669, [PR #726](https://github.com/storytold/craft-anything/pull/726))
       — claimed: riyaz, branch `bugfix/r1.6-windows-vs-cpp-tools`
 - [x] Turn off web and capture tools by default in restricted MCP mode (#856, #855).
+- [x] Find a Unity Editor that was added to Unity Hub with "Locate" (#1077): read the Hub's own
+      list of editors (`editors-v2.json`, `editors.json`), on macOS and Linux too. Unit-tested with
+      both layouts of the list
+      — claimed: justinjohn0306, branch `bugfix/r1.6-unity-located-editors`
+- [ ] Check on a computer with Unity Hub that a located editor is found (#1077): the list's
+      layout was taken from descriptions of it, not from a real file
 
 ---
 
@@ -1364,8 +1386,15 @@ to the project next.
 - [ ] Pin a website (a frozen copy of the built site, each served on its own port)
 - [ ] A pin started before the app restarted shows as running (keep its process id and start
       time in the pin, and check both), and can be stopped
-- [ ] Cap a run's log (`last-run.log`, `play.log`): it grows as long as the program prints
-      — in PR #218
+- [x] Cap a run's log (`last-run.log`, `play.log`): it grows as long as the program prints. The
+      program keeps writing straight to an append-only file, and while we are alive a watcher cuts
+      that file back to empty once it passes 1 MiB, so its writes never fail or block and a program
+      that outlives us is untouched; past our exit the file grows again, as it did before.
+      — claimed: muraa-p, branch bugfix/r2.10-cap-run-log
+- [x] The log-cap test assumed a cut lands within a few seconds of the stand-in's printing, so a
+      loaded machine could grow the file past the bound with nothing wrong. The stand-in now reads
+      its own log and stops once it has seen a cut and written past it
+      — claimed: muraa-p, branch test/r2.10-log-cap-waits-for-cut
 - [ ] Opening a pin that's already running brings its window to the front, instead of a message
 - [x] How much space pins take in Settings
       — claimed: Afloat16, branch feature/r2.10-pinned-copy-storage
@@ -1674,11 +1703,22 @@ Owner: open · Status: in progress
       existential of a protocol named this way was reported invalid ("expected a type"):
       `_$sSS6encode2toys7Encoder_p_tKF` is `Swift.String.encode(to: Swift.Encoder) throws -> ()`.
       — claimed: Chr0mium24, branch bugfix/r3.12-swift-demangle-existentials
+- [x] Swift value witness symbols decode. A symbol ending `w` and two letters is one of the
+      functions the runtime calls to copy, move, destroy or read the enum tag of a value of a
+      type, but the demangler had no `w` operator and reported it invalid ("unsupported operator
+      'w'"): `_$ss6ResultOwug` is `getEnumTag value witness for Swift.Result`.
+      — claimed: Chr0mium24, branch bugfix/r3.12-swift-demangle-value-witnesses
 - [x] Swift enum case symbols decode. A symbol ending `WC` is the function that builds an enum
       case, but the demangler read `WC` as an unknown witness kind and reported it invalid
       ("unsupported witness kind"): `_$s10FindMyBase3BitO3oneyA2CmFWC` is
       `enum case for FindMyBase.Bit.one(FindMyBase.Bit.Type) -> FindMyBase.Bit`.
       — claimed: Chr0mium24, branch bugfix/r3.12-swift-demangle-enum-cases
+- [x] Swift symbols decode private declarations. A private or `fileprivate` declaration's name
+      is followed by an identifier for its file and `LL`, and the demangler reported every such
+      symbol invalid ("unsupported operator 'L'"):
+      `_$s10DVTIconKit12_isDebugging33_8F51EEEBC836B21F9ED44F4C6D38A8CBLLSbvp` is
+      `DVTIconKit.(_isDebugging in _8F51EEEBC836B21F9ED44F4C6D38A8CB) : Swift.Bool`.
+      — claimed: Chr0mium24, branch bugfix/r3.12-swift-demangle-private-names
 - [x] Swift symbols name the right type after an optional, an associated type or an extension.
       The demangler's substitution list left out `Sg` optionals and `Qz`/`Qy` associated types
       and added extensions, so a later `A…` reference named the wrong node
@@ -1710,6 +1750,12 @@ Owner: open · Status: in progress
       `Swift.Double.__allocating_init(Swift.Double) -> Swift.Double` for
       `Swift.Double.init(Swift.Double) -> Swift.Double`.
       — claimed: Chr0mium24, branch bugfix/r3.12-swift-demangle-init-names
+- [x] Swift arguments without a label read `_:` when another argument of the same function,
+      initialiser or subscript has one. The demangler printed the bare type, so
+      `_$s10Foundation13__DataStorageC6append_6lengthySV_SitF` read
+      `Foundation.__DataStorage.append(Swift.UnsafeRawPointer, length: Swift.Int) -> ()` where
+      `swift-demangle` prints `append(_: Swift.UnsafeRawPointer, length: Swift.Int) -> ()`.
+      — claimed: Chr0mium24, branch bugfix/r3.12-swift-demangle-unlabeled-args
 - [x] Apply the extracted-string limit in file-offset order across UTF-16LE and narrow strings, so an early wide string is not hidden by later ASCII.
       — claimed: Afloat16, branch bugfix/r3.12-earliest-extracted-strings
 - [x] Visit XML plist values only inside a complete, correctly encoded document.
@@ -1903,6 +1949,12 @@ Owner: open · Status: in progress
       operator, so every addressor was reported invalid: `_$s5Books19PAGETURNLOG_ENABLEDSbvau` is
       `Books.PAGETURNLOG_ENABLED.unsafeMutableAddressor : Swift.Bool`.
       — claimed: Chr0mium24, branch bugfix/r3.12-swift-demangle-addressors
+- [x] Swift subscript accessors print the accessor after `subscript` and the type after a colon,
+      as `swift-demangle` does. The demangler put the accessor last, so
+      `_$s10Foundation4DataV06InlineB0Vys5UInt8VSiciM` read
+      `Foundation.Data.InlineData.subscript(Swift.Int) -> Swift.UInt8.modify` where `swift-demangle`
+      prints `Foundation.Data.InlineData.subscript.modify : (Swift.Int) -> Swift.UInt8`.
+      — claimed: Chr0mium24, branch bugfix/r3.12-swift-demangle-subscript-accessors
 - [x] Name the glyph weight (26) and glyph size (27) key attributes of asset catalogs, which hold
       SF Symbol style images; they're listed as `attribute-26` and `attribute-27` today.
       — claimed: Chr0mium24, branch bugfix/r3.12-car-glyph-attributes
