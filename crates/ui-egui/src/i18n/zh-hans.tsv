@@ -1463,3 +1463,14 @@ Couldn't change the approvals:	无法更改审批：
 What the builder may do without asking you, in this project.	在这个项目中，构建助手无需问你就可以做的事。
 Default follows Auto mode: with it on, what can be undone goes ahead and the rest is refused; with it off, the builder asks.	默认跟随自动模式：开启时，可撤销的操作会执行，其余的会被拒绝；关闭时，构建助手会询问。
 Connecting to {name}… {seconds} s	正在连接 {name}… {seconds} 秒
+Earlier investigations	以前的调查
+Continue an earlier investigation	继续以前的调查
+Read earlier investigations	读取以前的调查
+Open the investigation	打开调查
+Carrying on with an earlier investigation: {question}	继续以前的调查：{question}
+Carrying on with an earlier investigation.	继续以前的调查。
+Hide earlier investigations	隐藏以前的调查
+Show earlier investigations	显示以前的调查
+Investigation	调查
+{when} · {evidence} evidence records · {findings} findings	{when} · {evidence} 条证据 · {findings} 个发现
+Couldn't open that investigation.	无法打开该调查。

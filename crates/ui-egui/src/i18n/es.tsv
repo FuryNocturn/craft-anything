@@ -1463,3 +1463,14 @@ Couldn't change the approvals:	No se pudieron cambiar las aprobaciones:
 What the builder may do without asking you, in this project.	Lo que el constructor puede hacer sin preguntarte, en este proyecto.
 Default follows Auto mode: with it on, what can be undone goes ahead and the rest is refused; with it off, the builder asks.	Predeterminado sigue al modo automático: activado, lo que se puede deshacer se hace y el resto se rechaza; desactivado, el constructor pregunta.
 Connecting to {name}… {seconds} s	Conectando con {name}… {seconds} s
+Earlier investigations	Investigaciones anteriores
+Continue an earlier investigation	Continuar una investigación anterior
+Read earlier investigations	Leer las investigaciones anteriores
+Open the investigation	Abrir la investigación
+Carrying on with an earlier investigation: {question}	Seguimos con una investigación anterior: {question}
+Carrying on with an earlier investigation.	Seguimos con una investigación anterior.
+Hide earlier investigations	Ocultar las investigaciones anteriores
+Show earlier investigations	Mostrar las investigaciones anteriores
+Investigation	Investigación
+{when} · {evidence} evidence records · {findings} findings	{when} · {evidence} pruebas · {findings} hallazgos
+Couldn't open that investigation.	No se pudo abrir esa investigación.

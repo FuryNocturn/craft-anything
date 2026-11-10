@@ -1463,3 +1463,14 @@ Couldn't change the approvals:	ნებართვების შეცვლ
 What the builder may do without asking you, in this project.	რისი გაკეთება შეუძლია ამწყობს ამ პროექტში თქვენი კითხვის გარეშე.
 Default follows Auto mode: with it on, what can be undone goes ahead and the rest is refused; with it off, the builder asks.	ნაგულისხმევი ავტორეჟიმს მიჰყვება: როცა ჩართულია, რისი გაუქმებაც შეიძლება, სრულდება, დანარჩენი კი უარყოფილია; როცა გამორთულია, ამწყობი გეკითხებათ.
 Connecting to {name}… {seconds} s	{name}-თან დაკავშირება… {seconds} წმ
+Earlier investigations	წინა გამოძიებები
+Continue an earlier investigation	წინა გამოძიების გაგრძელება
+Read earlier investigations	წინა გამოძიებების წაკითხვა
+Open the investigation	გამოძიების გახსნა
+Carrying on with an earlier investigation: {question}	ვაგრძელებთ წინა გამოძიებას: {question}
+Carrying on with an earlier investigation.	ვაგრძელებთ წინა გამოძიებას.
+Hide earlier investigations	წინა გამოძიებების დამალვა
+Show earlier investigations	წინა გამოძიებების ჩვენება
+Investigation	გამოძიება
+{when} · {evidence} evidence records · {findings} findings	{when} · მტკიცებულება: {evidence} · მიგნება: {findings}
+Couldn't open that investigation.	ამ გამოძიების გახსნა ვერ მოხერხდა.

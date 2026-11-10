@@ -1463,3 +1463,14 @@ Couldn't change the approvals:	Die Freigaben konnten nicht geändert werden:
 What the builder may do without asking you, in this project.	Was der Builder in diesem Projekt tun darf, ohne dich zu fragen.
 Default follows Auto mode: with it on, what can be undone goes ahead and the rest is refused; with it off, the builder asks.	Standard folgt dem Automatikmodus: Ist er an, geschieht, was sich rückgängig machen lässt, und der Rest wird abgelehnt; ist er aus, fragt der Builder.
 Connecting to {name}… {seconds} s	Verbinde mit {name}… {seconds} s
+Earlier investigations	Frühere Untersuchungen
+Continue an earlier investigation	Eine frühere Untersuchung fortsetzen
+Read earlier investigations	Frühere Untersuchungen lesen
+Open the investigation	Untersuchung öffnen
+Carrying on with an earlier investigation: {question}	Weiter mit einer früheren Untersuchung: {question}
+Carrying on with an earlier investigation.	Weiter mit einer früheren Untersuchung.
+Hide earlier investigations	Frühere Untersuchungen ausblenden
+Show earlier investigations	Frühere Untersuchungen anzeigen
+Investigation	Untersuchung
+{when} · {evidence} evidence records · {findings} findings	{when} · {evidence} Belege · {findings} Erkenntnisse
+Couldn't open that investigation.	Diese Untersuchung ließ sich nicht öffnen.

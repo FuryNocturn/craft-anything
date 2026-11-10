@@ -1463,3 +1463,14 @@ Couldn't change the approvals:	เปลี่ยนการอนุมัต�
 What the builder may do without asking you, in this project.	สิ่งที่ตัวสร้างทำได้โดยไม่ถามในโปรเจกต์นี้
 Default follows Auto mode: with it on, what can be undone goes ahead and the rest is refused; with it off, the builder asks.	ค่าเริ่มต้นตามโหมดอัตโนมัติ: เปิดไว้จะทำสิ่งที่ย้อนกลับได้ต่อและปฏิเสธที่เหลือ ปิดไว้ตัวสร้างจะถาม
 Connecting to {name}… {seconds} s	กำลังเชื่อมต่อกับ {name}… {seconds} วินาที
+Earlier investigations	การตรวจสอบก่อนหน้า
+Continue an earlier investigation	ทำการตรวจสอบก่อนหน้าต่อ
+Read earlier investigations	อ่านการตรวจสอบก่อนหน้า
+Open the investigation	เปิดการตรวจสอบ
+Carrying on with an earlier investigation: {question}	ทำการตรวจสอบก่อนหน้าต่อ: {question}
+Carrying on with an earlier investigation.	ทำการตรวจสอบก่อนหน้าต่อ
+Hide earlier investigations	ซ่อนการตรวจสอบก่อนหน้า
+Show earlier investigations	แสดงการตรวจสอบก่อนหน้า
+Investigation	การตรวจสอบ
+{when} · {evidence} evidence records · {findings} findings	{when} · หลักฐาน {evidence} รายการ · ข้อค้นพบ {findings} รายการ
+Couldn't open that investigation.	เปิดการตรวจสอบนั้นไม่ได้
