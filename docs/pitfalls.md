@@ -251,6 +251,13 @@ no error to find. Once the stream's own terminal event is parsed, stop waiting o
 itself: fold a `result_seen` flag into `cancel_when` with a short grace period (`RESULT_GRACE`),
 and don't report that as "Stopped." A terminal stream event, not the OS exit, is what ends a turn.
 
+**A deadline that ended in a wait with none.** Every `Process` run has a time limit and a cancel,
+but when either fired the supervisor called the library's `kill()`, which stops the program and
+then waits for it with no limit (on Windows also for a job message the system doesn't promise).
+A program that outlives its stop held the run, and Pause, for good (#1438, #981). A deadline covers
+its own cleanup too: after a stop, poll for a moment and move on (`process::end`), and when a
+library call says "kill", read whether it also waits. Not reproduced on the reporters' machines.
+
 **A console held open by a program started next door.** On Windows Server 2022 opening a
 pseudoconsole briefly makes inheritable handles (a Unix terminal too, until it's made close-on-exec),
 so a program another thread started at that moment kept the console open until it ended, and closing
@@ -379,6 +386,10 @@ window was redrawn at the display's rate the whole time (a core busy, or every c
 software), and a person reported "my CPU is fully used" (#579). Animations ask for their next frame
 at their own pace (`widgets::animate`, `widgets::Spinner`); check a library widget for
 `request_repaint` before using it for something long. Not measured on Windows here.
+It happened again with egui's `ProgressBar::animate(true)` in the jobs list, which the spinner fix
+didn't look at: replacing one widget isn't checking the others. Search the library's widgets for
+`request_repaint` (`grep -rn request_repaint ~/.cargo/registry/src/*/egui-*/src/widgets`), and the
+test that refuses egui's spinner on screens refuses its progress bar too.
 
 **Every tool offered to a model that can only use a few.** The builder on an API backend was sent
 all 33-41 Core and Build tools, about 23,000-30,000 characters of descriptions. A local 14B model

@@ -803,16 +803,24 @@ pub(crate) fn server_form(app: &mut CraftApp, ui: &mut Ui) {
     });
     // A server still starting or loading a model may take up to a minute to answer: say it's being
     // asked and for how long, so the form doesn't look like nothing happened (#1429).
-    if let Some((_, name, started)) = &form.connecting {
+    let mut stop = None;
+    if let Some((job, name, started)) = &form.connecting {
         let seconds = started.elapsed().as_secs().to_string();
         ui.horizontal(|ui| {
             ui.add(widgets::Spinner::new().size(theme::CAPTION).color(t.accent));
             ui.label(
                 RichText::new(trf("Connecting to {name}… {seconds} s", &[("name", name), ("seconds", &seconds)])).color(t.text_faint).size(theme::CAPTION),
             );
+            // Waiting out the minute isn't the only way: what was typed stays to fix and add again.
+            if widgets::secondary(ui, Some("x"), "Stop").clicked() {
+                stop = Some(*job);
+            }
         });
         // The seconds count on even when the spinner is out of view.
         ui.ctx().request_repaint_after(std::time::Duration::from_secs(1));
+    }
+    if let Some(job) = stop {
+        app.jobs.cancel(job);
     }
     if add {
         app.add_server();
@@ -1351,6 +1359,35 @@ mod model_options_tests {
         assert!(app.server_form.connecting.is_none());
         assert!(!draw(&mut app).contains("Connecting to"));
         assert_eq!(app.server_form.address, "http://127.0.0.1:0/v1", "what was typed is kept to fix it");
+    }
+
+    /// #1429: the wait can be stopped from the form; a stop is said plainly, not as an error, and
+    /// what was typed stays.
+    #[test]
+    fn adding_a_server_can_be_stopped_from_the_form() {
+        let mut app = app_with_backend();
+        app.server_form.name = "Home box".into();
+        app.server_form.address = "http://127.0.0.1:0/v1".into();
+        app.add_server();
+        let job = app.server_form.connecting.as_ref().map(|(job, ..)| *job).expect("connecting");
+        let context = egui::Context::default();
+        crate::theme::install_fonts(&context);
+        let mut output = context.run_ui(egui::RawInput::default(), |ui| server_form(&mut app, ui));
+        output.textures_delta.clear();
+        let shown = output.shapes.iter().any(|shape| matches!(&shape.shape, egui::epaint::Shape::Text(t) if t.galley.text() == "Stop"));
+        assert!(shown, "a Stop button beside the wait");
+        app.handle_done(crate::jobs::Finished {
+            job,
+            result: Ok(crate::Done::BackendAdded {
+                name: "Home box".into(),
+                result: Err(craft_anything_engine::evidence::ToolError::cancelled()),
+                choices: app.backend_choices,
+            }),
+        });
+        assert!(app.server_form.connecting.is_none());
+        let (text, error) = app.state.toasts.last().cloned().expect("a note");
+        assert_eq!((text.as_str(), error), ("Stopped adding Home box.", false));
+        assert_eq!(app.server_form.name, "Home box", "what was typed is kept to add it again");
     }
 
     #[test]
