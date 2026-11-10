@@ -305,6 +305,10 @@ only when it's green and a maintainer has fully reviewed it, code as well as wor
 - [x] `docs/opencode.md` still has one passage twice, missed by #1226: in "Configuration and
       execution", the older copy of the standalone-server sentence, cut off after "both"
       — claimed: youkaicountry, branch docs/r5.2-opencode-doubled-passage
+- [x] Let a UI change land with its new strings in English while native speakers review their
+      translations: `cargo xtask i18n-coverage` accepts strings listed as awaiting translation,
+      and the translation PR empties the list
+      — claimed: tanish2k09, branch chore/r5.2-awaiting-translation
 
 ### R5.3 A builder that can't make progress stops
 Owner: open · Status: todo
@@ -729,9 +733,10 @@ Owner: open · Status: in progress
 - [x] `doctor` looks a registration's bare command (`craft-anything-cli`, as a hand-made entry
       names it) up on PATH, as the app starting it does, instead of calling it missing.
       — claimed: Plastic-time, branch bugfix/r2.2-doctor-cli-on-path
-- [ ] Settings says when a saved agent program is gone and which one runs in its place; today a
-      build moves to the newest build folder or the usual program without saying so, and the
-      setting keeps the old path (read on a worker, not while drawing) (#721)
+- [x] Settings says when a saved agent program is gone and which one runs in its place
+      (`AiHub::replaced_programs`, read on a worker with the AI list), with "Use it" to save
+      that one when it's a file of its own (#721, #1468)
+      — claimed: FuryNocturn, branch feature/r2.2-saved-program-gone
 - [x] A build says in its feed when it runs another program than the one saved in Settings → AI
       (#721) — claimed: Agapenordev, branch bugfix/r2.2-build-says-replaced-program
 - [x] GitHub Copilot through its own CLI login and ACP, without credential import:

@@ -1464,6 +1464,8 @@ What the builder may do without asking you, in this project.	Was der Builder in 
 Default follows Auto mode: with it on, what can be undone goes ahead and the rest is refused; with it off, the builder asks.	Standard folgt dem Automatikmodus: Ist er an, geschieht, was sich rückgängig machen lässt, und der Rest wird abgelehnt; ist er aus, fragt der Builder.
 Connecting to {name}… {seconds} s	Verbinde mit {name}… {seconds} s
 Stopped adding {name}.	Hinzufügen von {name} abgebrochen.
+It isn't there any more, so {program} runs in its place.	Es ist nicht mehr dort, daher läuft stattdessen {program}.
+Use it	Verwenden
 Earlier investigations	Frühere Untersuchungen
 Continue an earlier investigation	Eine frühere Untersuchung fortsetzen
 Read earlier investigations	Frühere Untersuchungen lesen

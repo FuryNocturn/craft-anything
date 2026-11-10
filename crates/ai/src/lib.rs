@@ -694,6 +694,21 @@ impl AiHub {
         self.config().backends.into_iter().map(|b| (b.config.name, b.options)).collect()
     }
 
+    /// For each agent app on this computer whose saved program can't be used (an update moved it,
+    /// #721), the program that runs in its place. It looks at the disk and PATH: call it on a worker.
+    pub fn replaced_programs(&self) -> std::collections::BTreeMap<String, String> {
+        self.config()
+            .backends
+            .into_iter()
+            .filter(|b| b.config.kind == BackendKind::AgentCli && b.config.ssh_host.as_deref().is_none_or(|h| h.trim().is_empty()))
+            .filter_map(|b| {
+                let program = cli_agents::program_of(&b.config, &b.options).ok()?;
+                cli_agents::replaced_program(&b.options, &program)?;
+                Some((b.config.name, program))
+            })
+            .collect()
+    }
+
     /// The model a backend uses: an API's model, or the one its agent is asked for. Returns
     /// false when there was no such backend.
     pub fn set_model(&self, name: &str, model: &str) -> Result<bool, ToolError> {
