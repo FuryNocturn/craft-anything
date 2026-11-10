@@ -731,7 +731,7 @@ Owner: open · Status: in progress
       — claimed: Plastic-time, branch bugfix/r2.2-doctor-cli-on-path
 - [x] Settings says when a saved agent program is gone and which one runs in its place
       (`AiHub::replaced_programs`, read on a worker with the AI list), with "Use it" to save
-      that one when it's a file of its own (#721)
+      that one when it's a file of its own (#721, #1468)
       — claimed: FuryNocturn, branch feature/r2.2-saved-program-gone
 - [x] A build says in its feed when it runs another program than the one saved in Settings → AI
       (#721) — claimed: Agapenordev, branch bugfix/r2.2-build-says-replaced-program
