@@ -710,6 +710,7 @@ Owner: open · Status: in progress
 - [ ] Settings says when a saved agent program is gone and which one runs in its place; today a
       build moves to the newest build folder or the usual program without saying so, and the
       setting keeps the old path (read on a worker, not while drawing) (#721)
+      — claimed: FuryNocturn, branch feature/r2.2-saved-program-gone
 - [x] A build says in its feed when it runs another program than the one saved in Settings → AI
       (#721) — claimed: Agapenordev, branch bugfix/r2.2-build-says-replaced-program
 - [x] GitHub Copilot through its own CLI login and ACP, without credential import:
