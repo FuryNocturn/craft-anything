@@ -512,8 +512,9 @@ been run live.
       (#1429): show "Connecting to <name>…" with a spinner and the seconds waited, wait a minute,
       and give advice for a server that was reached
       — claimed: jgt87, branch bugfix/r5.4-add-server-connecting — PR #1430
-- [ ] Let a person stop adding a server while it's asked for its models (#1429): the request runs
-      in a blocking call that doesn't check the job's cancel, so the wait can only run out
+- [x] Let a person stop adding a server while it's asked for its models (#1429): the request runs
+      on a helper thread and the wait checks the job's cancel, so Stop beside "Connecting to…"
+      ends it at once (`AiHub::add_server_until`); the request given up on ends by its own limits
       — claimed: FuryNocturn, branch bugfix/r5.4-stop-adding-a-server
 
 ### R5.5 API-key builds fail in words people can use

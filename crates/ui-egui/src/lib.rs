@@ -1611,6 +1611,7 @@ impl CraftApp {
                     }
                     self.refresh_backends();
                 }
+                Err(e) if e.code == ErrorCode::Cancelled => self.toast(i18n::trf("Stopped adding {name}.", &[("name", &name)]), false),
                 Err(e) => self.toast(e.for_people(), true),
             },
             Done::Picked { pick, path } => {
