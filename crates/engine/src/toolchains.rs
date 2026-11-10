@@ -146,12 +146,18 @@ impl Toolchain {
             let relative = files.first()?.strip_prefix(app).ok()?;
             let file = relative.to_str()?;
             let parent = relative.parent()?;
+            let folders: Vec<String> = parent.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
+            // Go reads `\` as a separator too, so a folder named with one (possible on Unix)
+            // would name another package: no launch is inferred for it.
+            if recipe.command.iter().any(|a| a == "{package}") && folders.iter().any(|f| f.contains('\\')) {
+                continue;
+            }
             let command: Vec<String> = recipe
                 .command
                 .iter()
                 .map(|arg| match arg.as_str() {
                     // Go names packages with `/` on every system.
-                    "{package}" => format!("./{}", parent.to_string_lossy().replace('\\', "/")),
+                    "{package}" => format!("./{}", folders.join("/")),
                     "{module}" => parent.to_string_lossy().replace(['/', '\\'], "."),
                     _ => arg.replace("{file}", file),
                 })
@@ -270,6 +276,19 @@ mod tests {
         assert!(launch().is_none());
         std::fs::write(app.join("main.go"), "package main").unwrap();
         assert_eq!(launch(), Some(("go".into(), vec!["run".into(), ".".into()])));
+    }
+
+    /// On Unix a folder may be named with `\`, which Go reads as a separator: `go run` would start
+    /// another package, so nothing is inferred for it.
+    #[cfg(unix)]
+    #[test]
+    fn go_launch_skips_a_command_folder_named_with_a_backslash() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = dir.path();
+        std::fs::write(app.join("go.mod"), "module fixture").unwrap();
+        std::fs::create_dir_all(app.join("cmd").join("foo\\bar")).unwrap();
+        std::fs::write(app.join("cmd").join("foo\\bar").join("main.go"), "package main").unwrap();
+        assert_eq!(crate::outputs::launch(app, None), None);
     }
 
     /// A Java project runs the one runnable jar its build left, with `java` even beside a build
