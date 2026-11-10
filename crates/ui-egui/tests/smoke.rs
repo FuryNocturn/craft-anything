@@ -1432,6 +1432,29 @@ fn an_agent_apps_program_is_set_in_settings() {
     assert!(wait(&mut h, |a| program(a).is_none()));
 }
 
+/// #721: an agent whose saved program is gone says so in Settings → AI, with the program that runs
+/// in its place. A program found by its usual name has no file to save, so nothing is offered.
+#[test]
+fn a_saved_program_that_is_gone_is_said_in_settings() {
+    use craft_anything_ai::{BackendEntry, BackendOptions};
+    let dir = tempfile::tempdir().unwrap();
+    let gone = dir.path().join("old-build").join("agent").display().to_string();
+    let mut h = harness(move || {
+        let a = demo::app(demo::engine(Mode::Experienced, true));
+        // cargo stands in for the agent's usual program: it's there wherever these tests run.
+        let config = BackendConfig { name: "Moved".into(), kind: BackendKind::AgentCli, model: "cargo".into(), base_url: None, ssh_host: None, enabled: true };
+        a.hub.add_backend_with(BackendEntry { config, options: BackendOptions { command: Some(gone), ..Default::default() } }, None).unwrap();
+        a
+    });
+    h.state_mut().refresh_backends();
+    assert!(wait(&mut h, |a| a.program_replaced.get("Moved").is_some_and(|p| p == "cargo")));
+    h.state_mut().state.settings_open = true;
+    h.state_mut().state.settings_tab = craft_anything_ui_egui::state::SettingsTab::Ai;
+    h.run_steps(3);
+    h.get_by_label("It isn't there any more, so cargo runs in its place.");
+    assert!(h.query_by_label("Use it").is_none(), "a name on PATH isn't a file to save");
+}
+
 /// #1060: an agent Detect can't find is chosen from the known agents and added by its program.
 #[test]
 fn an_agent_is_added_by_its_program_in_settings() {

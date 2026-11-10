@@ -1464,6 +1464,8 @@ What the builder may do without asking you, in this project.	Что констр
 Default follows Auto mode: with it on, what can be undone goes ahead and the rest is refused; with it off, the builder asks.	«По умолчанию» следует авторежиму: когда он включён, то, что можно отменить, выполняется, а остальное отклоняется; когда выключен, конструктор спрашивает.
 Connecting to {name}… {seconds} s	Подключение к {name}… {seconds} с
 Stopped adding {name}.	Добавление {name} остановлено.
+It isn't there any more, so {program} runs in its place.	Его там больше нет, поэтому вместо него запускается {program}.
+Use it	Использовать
 Add an agent by its program	Добавить агента по его программе
 For a coding agent installed somewhere we don't look.	Для агента-программиста, установленного там, где мы не ищем.
 Choose an agent	Выберите агента

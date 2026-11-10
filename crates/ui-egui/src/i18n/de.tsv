@@ -1464,6 +1464,8 @@ What the builder may do without asking you, in this project.	Was der Builder in 
 Default follows Auto mode: with it on, what can be undone goes ahead and the rest is refused; with it off, the builder asks.	Standard folgt dem Automatikmodus: Ist er an, geschieht, was sich rückgängig machen lässt, und der Rest wird abgelehnt; ist er aus, fragt der Builder.
 Connecting to {name}… {seconds} s	Verbinde mit {name}… {seconds} s
 Stopped adding {name}.	Hinzufügen von {name} abgebrochen.
+It isn't there any more, so {program} runs in its place.	Es ist nicht mehr dort, daher läuft stattdessen {program}.
+Use it	Verwenden
 Add an agent by its program	Einen Agenten über sein Programm hinzufügen
 For a coding agent installed somewhere we don't look.	Für einen Coding-Agenten, der dort installiert ist, wo wir nicht suchen.
 Choose an agent	Agenten wählen

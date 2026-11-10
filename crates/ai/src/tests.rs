@@ -260,6 +260,21 @@ fn a_saved_program_that_is_gone_is_named_by_test_and_doctor() {
     let reach = h.check_reachability();
     let nowhere = reach.iter().find(|(name, _)| name == "Nowhere").map(|(_, r)| r.clone()).unwrap();
     assert_eq!(nowhere, Err(format!("there's no program at {gone}")));
+
+    // What Settings says: each AI whose saved program is gone, and what runs instead. One whose
+    // saved program is there, that has none saved, or that has nothing to run instead (doctor
+    // says that one), isn't listed.
+    let there = dir.path().join("agent-here");
+    std::fs::write(&there, "").unwrap();
+    let mut kept = backend("Kept", "cargo");
+    kept.options.command = Some(there.display().to_string());
+    h.add_backend_with(kept, None).unwrap();
+    let mut usual = backend("Unsaved", "cargo");
+    usual.options.command = None;
+    h.add_backend_with(usual, None).unwrap();
+    let replaced = h.replaced_programs();
+    assert_eq!(replaced.get("Usual").map(String::as_str), Some("cargo"));
+    assert!(!replaced.contains_key("Nowhere") && !replaced.contains_key("Kept") && !replaced.contains_key("Unsaved"), "{replaced:?}");
 }
 
 /// #1060: an agent detection can't find is added by its program, numbered when its name is taken;

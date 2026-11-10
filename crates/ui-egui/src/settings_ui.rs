@@ -331,7 +331,7 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
         ui.label(RichText::new(tr("No AI is set up yet. The built-in engines still work; an AI adds plain-words answers.")).color(t.text_dim));
     }
     let (mut pick, mut builds, mut extracts, mut toggle, mut remove) = (None, None, None, None, None);
-    let (mut choose_program, mut usual_program) = (None, None);
+    let (mut choose_program, mut usual_program, mut use_program) = (None, None, None);
     let mut check_agent = None;
     let mut save_folder = None;
     // Taken out while the rows borrow the app, and put back after them.
@@ -374,6 +374,19 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                                 usual_program = Some(b.name.clone());
                             }
                         });
+                        // The saved program is gone (an update moved it): say what runs instead,
+                        // and offer to save that one when it's a file of its own (#721).
+                        if let Some(instead) = app.program_replaced.get(&b.name) {
+                            ui.horizontal_wrapped(|ui| {
+                                ui.style_mut().override_font_id = Some(egui::FontId::proportional(theme::CAPTION));
+                                let text = trf("It isn't there any more, so {program} runs in its place.", &[("program", instead)]);
+                                ui.add(egui::Label::new(RichText::new(text).color(t.warning).size(theme::CAPTION)).wrap());
+                                let path = std::path::Path::new(instead);
+                                if path.parent().is_some_and(|p| !p.as_os_str().is_empty()) && widgets::link(ui, "Use it").clicked() {
+                                    use_program = Some((b.name.clone(), instead.clone()));
+                                }
+                            });
+                        }
                     }
                     // The folder it keeps its sign-in in (Claude Code's CLAUDE_CONFIG_DIR), typed
                     // so `~/` and hidden folders work, here or over SSH: another folder is another
@@ -637,6 +650,9 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
     }
     if let Some(name) = usual_program {
         app.set_agent_program(&name, None);
+    }
+    if let Some((name, program)) = use_program {
+        app.set_agent_program(&name, Some(program));
     }
     app.folder_inputs = folder_drafts;
     if let Some((name, folder)) = save_folder {
