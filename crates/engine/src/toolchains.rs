@@ -150,7 +150,8 @@ impl Toolchain {
                 .command
                 .iter()
                 .map(|arg| match arg.as_str() {
-                    "{package}" => format!("./{}", parent.display()),
+                    // Go names packages with `/` on every system.
+                    "{package}" => format!("./{}", parent.to_string_lossy().replace('\\', "/")),
                     "{module}" => parent.to_string_lossy().replace(['/', '\\'], "."),
                     _ => arg.replace("{file}", file),
                 })
@@ -264,8 +265,7 @@ mod tests {
         }
         std::fs::write(app.join("cmd/viewer/main.go"), "package main").unwrap();
         let launch = || crate::outputs::launch(app, None);
-        let package = format!("./{}", Path::new("cmd").join("viewer").display());
-        assert_eq!(launch(), Some(("go".into(), vec!["run".into(), package])));
+        assert_eq!(launch(), Some(("go".into(), vec!["run".into(), "./cmd/viewer".into()])));
         std::fs::write(app.join("cmd/library/main.go"), "package main").unwrap();
         assert!(launch().is_none());
         std::fs::write(app.join("main.go"), "package main").unwrap();
