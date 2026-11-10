@@ -632,6 +632,11 @@ impl AiHub {
             return Err(ToolError::invalid(format!("There's no program at {program}."))
                 .with_remediation("Pick the agent's command-line program itself, such as opencode-cli.exe, not its folder or app."));
         }
+        // npm puts a PowerShell shim beside each .cmd one; programs are never started through PowerShell.
+        if std::path::Path::new(program).extension().is_some_and(|e| e.eq_ignore_ascii_case("ps1")) {
+            return Err(ToolError::invalid(format!("{program} is a PowerShell script, which can't be started as the agent."))
+                .with_remediation("Pick the agent's .exe, or the .cmd beside this script."));
+        }
         let taken: Vec<String> = self.config().backends.into_iter().map(|b| b.config.name).collect();
         let name = std::iter::once(display.to_string())
             .chain((2..100).map(|i| format!("{display} {i}")))

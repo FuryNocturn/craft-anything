@@ -263,7 +263,7 @@ fn a_saved_program_that_is_gone_is_named_by_test_and_doctor() {
 }
 
 /// #1060: an agent detection can't find is added by its program, numbered when its name is taken;
-/// an unknown agent, a missing file and a folder are refused before anything is saved.
+/// an unknown agent, a missing file, a folder and a PowerShell script are refused before anything is saved.
 #[test]
 fn an_agent_is_added_by_its_program() {
     let (h, _d) = hub();
@@ -280,6 +280,10 @@ fn an_agent_is_added_by_its_program() {
     assert!(h.add_agent_program("no-such-agent", &program).is_err());
     assert!(h.add_agent_program("codex", &dir.path().join("gone").display().to_string()).is_err());
     assert!(h.add_agent_program("codex", &dir.path().display().to_string()).is_err());
+    let script = dir.path().join("codex.PS1");
+    std::fs::write(&script, "").unwrap();
+    let err = h.add_agent_program("codex", &script.display().to_string()).unwrap_err();
+    assert!(err.message.contains("PowerShell"), "{}", err.message);
     assert_eq!(h.config().backends.len(), 2);
 }
 
