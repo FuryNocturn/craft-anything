@@ -160,7 +160,14 @@ pub enum Done {
     AgentConnection(String, Result<String, String>),
     /// The configured backends, the ones chosen to build with and to extract with, and each one's
     /// options.
-    Backends(Vec<BackendConfig>, Option<String>, Option<String>, std::collections::BTreeMap<String, craft_anything_ai::BackendOptions>),
+    Backends(
+        Vec<BackendConfig>,
+        Option<String>,
+        Option<String>,
+        std::collections::BTreeMap<String, craft_anything_ai::BackendOptions>,
+        /// `AiHub::replaced_programs`: saved programs that are gone, and what runs instead.
+        std::collections::BTreeMap<String, String>,
+    ),
     /// The models an AI can be set to (Settings → AI's model picker).
     ModelChoices {
         name: String,
@@ -439,6 +446,8 @@ pub struct CraftApp {
     pub backends: Vec<BackendConfig>,
     /// Each backend's options (an agent app's program and model), by name (Settings → AI).
     pub backend_options: std::collections::BTreeMap<String, craft_anything_ai::BackendOptions>,
+    /// Agent apps whose saved program is gone, and the program that runs in its place (#721).
+    pub program_replaced: std::collections::BTreeMap<String, String>,
     /// The AI whose model is being chosen in Settings → AI, and the models it offers once they've
     /// come (`None`: still asking).
     pub model_picker: Option<(String, Option<Vec<String>>)>,
@@ -570,6 +579,7 @@ impl CraftApp {
             conversation: None,
             backends: Vec::new(),
             backend_options: Default::default(),
+            program_replaced: Default::default(),
             model_picker: None,
             agent_model_picker: None,
             model_request: 0,
@@ -1511,7 +1521,7 @@ impl CraftApp {
             Done::AgentConnection(name, result) => {
                 self.agent_connections.insert(name, Some(result));
             }
-            Done::Backends(b, builder, extractor, options) => {
+            Done::Backends(b, builder, extractor, options, replaced) => {
                 if self.state.backend.as_ref().is_some_and(|n| !b.iter().any(|c| &c.name == n)) {
                     self.state.backend = None;
                 }
@@ -1519,6 +1529,7 @@ impl CraftApp {
                 self.builder = builder;
                 self.extractor = extractor;
                 self.backend_options = options;
+                self.program_replaced = replaced;
                 self.model_tuning.retain(|name, state| {
                     self.backends.iter().any(|backend| backend.name == *name && craft_anything_ai::model_options::supported(backend))
                         && self.backend_options.get(name).and_then(|options| options.cli_model.as_ref()) == state.cli_model.as_ref()
@@ -1985,7 +1996,13 @@ pub fn app_icon(size: f32) -> egui::Image<'static> {
 /// Run an action; a panic is logged and swallowed so one bad action never takes the app down.
 /// The configured backends and the ones chosen to build and to extract (read off the UI thread).
 pub(crate) fn backends(hub: &AiHub) -> Done {
-    Done::Backends(hub.backends(), hub.chosen(craft_anything_ai::Role::Builder), hub.chosen(craft_anything_ai::Role::Extractor), hub.options())
+    Done::Backends(
+        hub.backends(),
+        hub.chosen(craft_anything_ai::Role::Builder),
+        hub.chosen(craft_anything_ai::Role::Extractor),
+        hub.options(),
+        hub.replaced_programs(),
+    )
 }
 
 impl CraftApp {

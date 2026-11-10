@@ -707,9 +707,9 @@ Owner: open · Status: in progress
 - [x] `doctor` looks a registration's bare command (`craft-anything-cli`, as a hand-made entry
       names it) up on PATH, as the app starting it does, instead of calling it missing.
       — claimed: Plastic-time, branch bugfix/r2.2-doctor-cli-on-path
-- [ ] Settings says when a saved agent program is gone and which one runs in its place; today a
-      build moves to the newest build folder or the usual program without saying so, and the
-      setting keeps the old path (read on a worker, not while drawing) (#721)
+- [x] Settings says when a saved agent program is gone and which one runs in its place
+      (`AiHub::replaced_programs`, read on a worker with the AI list), with "Use it" to save
+      that one when it's a file of its own (#721)
       — claimed: FuryNocturn, branch feature/r2.2-saved-program-gone
 - [x] A build says in its feed when it runs another program than the one saved in Settings → AI
       (#721) — claimed: Agapenordev, branch bugfix/r2.2-build-says-replaced-program
