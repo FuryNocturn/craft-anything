@@ -514,6 +514,7 @@ been run live.
       — claimed: jgt87, branch bugfix/r5.4-add-server-connecting — PR #1430
 - [ ] Let a person stop adding a server while it's asked for its models (#1429): the request runs
       in a blocking call that doesn't check the job's cancel, so the wait can only run out
+      — claimed: FuryNocturn, branch bugfix/r5.4-stop-adding-a-server
 
 ### R5.5 API-key builds fail in words people can use
 Owner: open · Status: todo
