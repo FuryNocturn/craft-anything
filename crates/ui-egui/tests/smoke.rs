@@ -1467,6 +1467,15 @@ fn an_agent_is_added_by_its_program_in_settings() {
         a
     });
     h.run_steps(2);
+    // The row sits below the visible part of the AI page: scroll to it, as a person would.
+    h.event(egui::Event::PointerMoved(egui::pos2(640.0, 400.0)));
+    h.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, -300.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.run_steps(20);
     h.get_by_label("Add an agent by its program");
     // Nothing to choose a program for until an agent is chosen.
     h.get_by_label("Choose its program…").click();
