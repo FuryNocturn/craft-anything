@@ -314,6 +314,7 @@ only when it's green and a maintainer has fully reviewed it, code as well as wor
       stand-in JEB servers of the tests beside it bind port 0 too and can be handed that port.
       Seen once in six whole-suite runs on Windows 11: `engines_jeb_check` got a stand-in's answer.
       Give the negative probe an address no other test can take
+      — claimed: FuryNocturn, branch test/r5.2-jeb-refused-port
 
 ### R5.3 A builder that can't make progress stops
 Owner: open · Status: todo
