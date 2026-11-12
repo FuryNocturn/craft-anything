@@ -1071,7 +1071,8 @@ mod typed_retries {
             "opencode",
             concat!(
                 "#!/bin/sh\nif [ \"$2\" = '--help' ]; then printf '%s\\n' '--format --standalone'; exit 0; fi\n",
-                "for arg do last=\"$arg\"; done\nprintf '%s\\n' \"$last\" >> prompts\n",
+                // The message comes on stdin.
+                "cat >> prompts; printf '\\n' >> prompts\n",
                 "if [ ! -f rate-was-returned ]; then touch rate-was-returned\n",
                 "printf '%s\\n' '{\"type\":\"error\",\"error\":{\"name\":\"APIError\",\"data\":{\"message\":\"Please retry in 19.052906498s.\",\"statusCode\":429,\"isRetryable\":true}}}'\nexit 1\nfi\n",
                 "printf '%s\\n' '{\"type\":\"text\",\"part\":{\"text\":\"Built the app\"}}'\n"
