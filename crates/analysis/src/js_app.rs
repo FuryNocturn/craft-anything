@@ -165,6 +165,10 @@ pub struct SourceMapRef {
     pub sources: Vec<String>,
     #[serde(default)]
     pub sources_truncated: bool,
+    /// Index-map sections that pointed at an external map nobody read, so the sources they would
+    /// add are unknown (not absent).
+    #[serde(default)]
+    pub external_sections: usize,
     #[serde(default)]
     pub sources_with_content: usize,
     /// The map is referenced by a script, or sits beside one, but couldn't be read (malformed, an
@@ -1158,10 +1162,17 @@ fn read_source_map(
             budget.max_bytes = inventory.sources.iter().fold(budget.max_bytes, |left, source| left.saturating_sub(source.len()));
             r.sources = inventory.sources;
             r.sources_truncated = inventory.truncated;
+            r.external_sections = inventory.external_sections;
             if r.sources_truncated {
                 limitations.push((
                     "source_map_inventory_truncated".into(),
                     format!("Some source paths for {script} could not be retained within the source-map inventory limits."),
+                ));
+            }
+            if r.external_sections > 0 {
+                limitations.push((
+                    "source_map_external_sections".into(),
+                    format!("The source map for {script} points at {} external map(s) that weren't read, so its sources are incomplete.", r.external_sections),
                 ));
             }
             r.sources_with_content = map.sources_content.iter().filter(|c| c.is_some()).count();

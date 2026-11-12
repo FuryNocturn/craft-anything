@@ -87,6 +87,11 @@ names (`git merge-base --is-ancestor <fix> <release tag>`), and check the messag
 
 ## Tests
 
+**A TLS fixture closed before the handshake.** Accepted sockets inherited the listener's
+nonblocking mode on Windows, so the fixture read `WouldBlock` and closed a valid connection.
+Set the accepted socket to blocking mode before applying bounded I/O timeouts; consume the
+complete request header before replying.
+
 **A heartbeat sampled before shutdown raced a successful stop.** A child could write between
 the baseline read and `stop()`, failing the descendant cleanup test even when cleanup worked.
 Probe for exit instead of timing writes: the child holds a file lock the system releases only
@@ -547,6 +552,18 @@ cover the recovery tool, which copied every expanded path into its manifest: a 7
 64 KiB root and 1,200 sources retained about 78 MiB. Apply the inventory budget to recovery paths
 too, stop retaining originals when it is exhausted, and report partial recovery with a typed flag.
 
+**An unread part of a source map looked like absent sources.** An index-map section can point at
+another map (`url`), which the parser never fetches: it kept the section boundary but no count, so
+a source comparison reported a source only that map lists as confirmed missing. Count unread
+external sections on the map and in its inventory, carry the count into the application graph with
+a limitation, and give an otherwise unmatched source an `uncertain` reason. Test an inline section
+beside an external one, a nested index map, and the sources-only read used for bad mappings.
+
+**A fix landed in one of two copies of a reader.** The `sourceMappingURL` rules were fixed in
+`formats::sourcemap`, but `js::find_map_url` kept requiring a literal space, so a bundle with the
+standard no-space annotation was analysed without its map. Have one implementation and call it
+from both places; a regression at the consumer's public entry point catches a copy that drifts.
+
 **A floating-point conversion changed a fingerprint.** Widening a single-precision NaN to a double
 can change its sign, payload or signaling bit. Keep the original encoded bits for identities, and
 test signaling/quiet pairs as well as different payloads; retain numeric conversion for display.
@@ -589,6 +606,17 @@ resolved zero-argument calls, then filtered for known wrappers; ordinary local c
 the buffer before a real dependency appeared. Discover wrapper bindings first and count only
 recognised dependencies against their limit. Keep the buffer bounded, and test unrelated calls,
 forward declarations and more actual dependencies than the limit permits.
+
+**A capped window's counts read as totals.** A source-to-bundle comparison stopped examining after
+`max_rows` scripts but put its matched/unmatched counts beside the total script count, and reported
+the truncated unclaimed rows as the number of unclaimed units. Report how many were examined, count
+totals separately from listed rows, and mark the cap in the result and the tool's limitation.
+
+**A list cap stopped at one parsing path.** The syntax-tree pass bounded `endpoints` and `exposed`,
+but the lexer fallback, used for huge, deeply nested or unparsable sources, pushed to both without
+a limit, so the path chosen for hostile input was the one that could grow. Apply the same cap to
+every push on every path, record the list in `truncated` where the parsed path does, and test the
+fallback with more calls than the cap permits.
 
 **An occurrence label was also a binding name.** The second `obj.x` window and the first
 `obj["x[2]"]` window both appeared as `obj.x[2]`. Reserve literal labels and use a separate

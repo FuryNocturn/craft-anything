@@ -309,11 +309,12 @@ only when it's green and a maintainer has fully reviewed it, code as well as wor
       translations: `cargo xtask i18n-coverage` accepts strings listed as awaiting translation,
       and the translation PR empties the list
       — claimed: tanish2k09, branch chore/r5.2-awaiting-translation
-- [ ] `tools::android_tools::jeb::tests::not_configured_refused_and_remote_urls` fails now and
+- [x] `tools::android_tools::jeb::tests::not_configured_refused_and_remote_urls` fails now and
       then: it binds port 0, drops the listener and expects nothing to answer there, while the
       stand-in JEB servers of the tests beside it bind port 0 too and can be handed that port.
       Seen once in six whole-suite runs on Windows 11: `engines_jeb_check` got a stand-in's answer.
       Give the negative probe an address no other test can take
+      — claimed: FuryNocturn, branch test/r5.2-jeb-refused-port
 - [x] `cargo fmt --all` (and so `cargo xtask ci`) fails on Windows with "The filename or extension
       is too long" (os error 206): it hands rustfmt every target's root file in one command, about
       31,000 characters of `\\?\` paths, past Windows' 32,767 limit, and one crate (formats, ~22,000)
@@ -465,6 +466,9 @@ been run live.
       `build_file_write` receives an `app/`-relative path from `build_command_run` output that
       does not exist at the workspace root (`in_project_or_app`)
       — claimed: d7do7e, branch bugfix/r5.4-build-tools-app-fallback
+- [x] Normalize leading `./` components before checking the explicit `app/` prefix in
+      `in_project_or_app` so `./app/...` cannot fall back into a nested `app/app/`
+      — claimed: d7do7e, branch bugfix/r5.4-build-tools-dot-app
 - [x] An assistant turn with no text sends an empty string, not `content: null`, which Ollama
       refused as `invalid message content type: <nil>` (#403, #536)
 - [x] Understand a tool call a model writes as JSON in its text (#417; implementation `dfe9a4db2dcb3e27edbd67311cbb4202584e7af6`). The fallback protocol reads
@@ -1136,6 +1140,9 @@ Owner: maintainers · Status: in progress
       study finds no program in it ("Couldn't find the program to decompile"), so Deep mode skips
       Ghidra, the console runs and the window picture. Study the program its `Info.plist` names
       — claimed: htcom-code, branch bugfix/r2.4-app-bundle-program
+- [x] Since that fix, the console-run check reads an app bundle's `Info.plist` to name the original,
+      in Clean room too (review on #1759). Clean room takes the picked path's own name
+      — claimed: htcom-code, branch bugfix/r2.4-clean-room-bundle-name
 
 ### R2.5 Behaviour checks for non-web builds
 Owner: open · Status: in progress
@@ -1476,6 +1483,11 @@ Gaps found while using the app for real projects.
 - [x] An engine download the server can't answer right now (a 5xx, 429) says to try again later,
       not "update the pinned URL", which nobody installing an engine can do (#1193)
       — claimed: justinjohn0306, branch bugfix/r2.9-download-server-errors
+- [x] Keep shared engine downloads on HTTPS across every redirect, with a real TLS regression
+      and no signed redirect links in refusal diagnostics. Six controlled HTTP/TLS tests check
+      rejection before an HTTP request, successful HTTPS redirects, hashes and file protection;
+      the downgrade test fails without the HTTPS-only policy. Checked on Windows
+      — claimed: Butler12345, branch bugfix/r2.9-https-engine-downloads
 - [x] Settings → AI: a card for an AI found on this computer wraps its description beside its Add
       button; the line didn't wrap and ran on under the button
       — claimed: jgt87, branch bugfix/r2.9-detected-cards-wrap — PR #1235
@@ -1699,8 +1711,9 @@ Owner: open · Status: in progress
       `w9 = 0x92490000;`, dropping the low half set just before, and `mov w0, #-1` (MOVN) to
       `w0 = 0;`. Keep MOVK's other bits and invert MOVN's immediate
       — claimed: htcom-code, branch bugfix/r3.11-a64-move-wide-immediates
-- [ ] Fold an AArch64 MOVZ/MOVK sequence into one constant in pseudo-C: `mov w9, #0x2493` then
+- [x] Fold an AArch64 MOVZ/MOVK sequence into one constant in pseudo-C: `mov w9, #0x2493` then
       `movk w9, #0x9249, lsl #16` reads as two statements, not `w9 = 0x92492493;`
+      — claimed: Jensen-Yao, branch bugfix/r3.11-a64-movz-movk-constants
 - [x] Enforce stand-in per-body and total byte budgets on the text that is actually retained after redaction;
       deduplicate consecutive samples before charging the capture budget.
       — claimed: Afloat16, branch bugfix/r3.11-standin-redacted-budget-20261103b
@@ -2303,12 +2316,19 @@ Owner: open · Status: in progress
 - [x] A source map refused for bad mappings or sections still has a readable `sources` list: keep those sources with a
       warning instead of reporting the whole map unreadable.
       — claimed: NicolasBohn, branch bugfix/r3.12-sources-of-bad-mappings
-- [ ] An index-map section that points at an external map (`url`) adds no sources, so an application graph still
-      treats the map's list as complete: mark those sources uncertain until the external map is read.
+- [x] An index-map section that points at an external map (`url`) adds no sources. The parser counts those
+      unread sections, an application graph records them with a limitation, and a source comparison reports
+      otherwise unmatched sources as uncertain (`source_map_external_sections`) with partial coverage instead
+      of missing.
+      — claimed: AlexJoaquimPereira, branch bugfix/r3.12-source-map-external-sections
 - [x] Recognize source-map annotations with no space, tabs or repeated spaces after the marker, and reject whitespace inside their URLs.
       — claimed: Plastic-time, branch bugfix/r3.12-sourcemap-annotation-spacing-1111
 - [x] Keep source map annotation URL suffixes intact.
       — claimed: Plastic-time, branch rrfz/bugfix-r3.12-annotation-20261110
+- [x] The JavaScript crate's `sourceMappingURL` reader is the formats reader, so the standard
+      no-space annotation is found, tabs and repeated spaces are accepted, and a URL containing
+      whitespace is rejected, on the parsed and lexer paths alike.
+      — claimed: AlexJoaquimPereira, branch bugfix/r3.12-js-sourcemap-annotation
 - [x] Keep DOS relocations inside the declared executable header.
       — claimed: Afloat16, branch bugfix/r3.12-dos-relocation-header-boundary-20261105
 - [x] Report contradictory DOS executable size declarations as header problems.
@@ -2574,6 +2594,17 @@ Owner: open · Status: in progress
 - [x] Bound retained PE import/export name and forwarder bytes across repeated references; preserve bounded prefixes and report byte-budget truncation.
 - [x] Refuse padded and unterminated subidentifiers and cut-off arc lists in code-signature requirement OIDs instead of showing a different OID, and split a long first subidentifier.
       — claimed: NicolasBohn, branch bugfix/r3.12-codesign-oid-subidentifiers
+
+- [x] Bound the JavaScript lexer fallback's `endpoints` (fetch calls and URL literals) and
+      `exposed` lists to the same `MAX_LIST` cap as the syntax-tree pass, and record `endpoints`
+      in `truncated` when a fetch call is dropped, so a huge or unparsable bundle can't grow the
+      lists without limit.
+      — claimed: AlexJoaquimPereira, branch bugfix/r3.12-js-fallback-list-bounds
+
+- [x] A source-to-bundle comparison with more scripts than `max_rows` now says how many it examined
+      (`scripts_examined`), keeps the unclaimed-unit total complete, marks `rows_capped`, and adds a
+      partial-coverage limitation, so a capped window's counts are never read as totals.
+      — claimed: AlexJoaquimPereira, branch bugfix/r3.12-source-bundle-compare-totals
 
 
 ### R3.13 Web inspection correctness

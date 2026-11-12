@@ -487,6 +487,8 @@ fn default_rows() -> usize {
     2000
 }
 
+/// Compare a reference source tree with a shipped bundle, carrying a source map's unread external
+/// sections and the row cap into the evidence as uncertainty rather than absent sources.
 fn compare_source_to_bundle_tool(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
     let p: SourceBundleParams = parse_params(params)?;
     let (src, sid) = if let Some(path) = is_path_input(&p.source) {
@@ -506,13 +508,16 @@ fn compare_source_to_bundle_tool(ctx: &mut Ctx<'_>, params: Value) -> Result<Too
         (g, Some(ev.id))
     };
     let (app, aid) = load_graph(ctx, &p.application)?;
-    let d = diff_source_and_bundle(&src, &app, p.max_rows.clamp(1, 100_000));
+    let max_rows = p.max_rows.clamp(1, 100_000);
+    let d = diff_source_and_bundle(&src, &app, max_rows);
     let s = &d["summary"];
     let summary = format!(
-        "{} of {} source script(s) matched shipped code; {} unmatched; {} uncertain; {} bundle unit(s) with no observed source match.",
-        s["matched"], s["source_scripts"], s["unmatched_sources"], s["uncertain_sources"], s["bundle_units_without_source"]
+        "{} of {} source script(s) examined; {} matched; {} unmatched; {} uncertain; {} bundle unit(s) with no observed source match.",
+        s["scripts_examined"], s["source_scripts"], s["matched"], s["unmatched_sources"], s["uncertain_sources"], s["bundle_units_without_source"]
     );
+    let rows_capped = d["rows_capped"].as_bool().unwrap_or(false);
     let inventory_truncated = d["source_map_inventory_truncated"].as_bool().unwrap_or(false);
+    let map_external = d["source_map_external_sections"].as_bool().unwrap_or(false);
     let map_unreadable = d["source_map_unreadable"].as_bool().unwrap_or(false);
     let mut b = EvidenceBuilder::new(
         "js_source_bundle_compare",
@@ -535,11 +540,29 @@ fn compare_source_to_bundle_tool(ctx: &mut Ctx<'_>, params: Value) -> Result<Too
             ))
             .coverage(Coverage { status: CoverageStatus::Partial, ..Default::default() });
     }
+    if map_external {
+        b = b
+            .limitation(Limitation::new(
+                "source_map_external_sections",
+                "A source map points at an external map that wasn't read; sources without an observed match are uncertain, not confirmed absent.",
+            ))
+            .coverage(Coverage { status: CoverageStatus::Partial, ..Default::default() });
+    }
     if map_unreadable {
         b = b
             .limitation(Limitation::new(
                 "source_map_unreadable",
                 "A source map was malformed or not loaded; sources without an observed match are uncertain, not confirmed absent.",
+            ))
+            .coverage(Coverage { status: CoverageStatus::Partial, ..Default::default() });
+    }
+    if rows_capped {
+        b = b
+            .limitation(Limitation::new(
+                "rows_capped",
+                format!(
+                    "At most {max_rows} source scripts are compared and at most {max_rows} rows are listed; the match counts cover the examined scripts, and bundle units without an observed source are counted in full."
+                ),
             ))
             .coverage(Coverage { status: CoverageStatus::Partial, ..Default::default() });
     }
@@ -881,6 +904,28 @@ mod tests {
         assert_eq!(c["confidence"], "inferred");
     }
 
+    /// A comparison that examines one of two scripts says so, marks the rows capped, and carries
+    /// partial coverage with the limitation.
+    #[test]
+    fn source_comparison_discloses_capped_rows_and_examined_scripts() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("reference");
+        fx::write_files(&src, &[("src/a.js", "const a = 1;\n".to_string()), ("src/b.js", "const b = 2;\n".to_string())]).unwrap();
+        let dist = dir.path().join("dist");
+        fx::write_files(&dist, &[("main.js", "const main = 3;\n".to_string())]).unwrap();
+        let e = Engine::new(crate::testing::session());
+        let comparison = call(&e, "js_source_bundle_compare", json!({"source": src, "application": dist, "max_rows": 1})).unwrap();
+        assert_eq!(comparison["result"]["summary"]["scripts_examined"], 1, "{}", comparison["result"]);
+        assert_eq!(comparison["result"]["summary"]["source_scripts"], 2);
+        assert_eq!(comparison["result"]["summary"]["bundle_units_without_source"], 1);
+        assert_eq!(comparison["result"]["rows_capped"], true);
+        let limitations = comparison["limitations"].as_array().unwrap();
+        assert!(limitations.iter().any(|l| l["code"] == "rows_capped"), "{limitations:?}");
+        assert_eq!(comparison["coverage"]["status"], "partial");
+        let summary = comparison["summary"].as_str().unwrap();
+        assert!(summary.contains("1 of 2 source script(s) examined"), "{summary}");
+    }
+
     #[test]
     fn source_comparison_discloses_an_unreadable_map() {
         let dir = tempfile::tempdir().unwrap();
@@ -947,6 +992,43 @@ mod tests {
                 assert_eq!(comparison["coverage"]["status"], "unknown");
             }
         }
+    }
+
+    /// A comparison with a map whose external section was never read names that section in its
+    /// limitation and reports an otherwise unmatched source as uncertain.
+    #[test]
+    fn source_comparison_discloses_unread_external_sections() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("reference");
+        fx::write_files(&src, &[("src/kept.js", String::new()), ("src/vendor.js", String::new())]).unwrap();
+        let dist = dir.path().join("dist");
+        fx::write_files(
+            &dist,
+            &[
+                ("main.js", "//# sourceMappingURL=main.js.map\n".to_string()),
+                (
+                    "main.js.map",
+                    json!({
+                        "version": 3,
+                        "sections": [
+                            {"offset": {"line": 0, "column": 0}, "map": {"version": 3, "sourceRoot": "src", "sources": ["kept.js"], "mappings": ""}},
+                            {"offset": {"line": 10, "column": 0}, "url": "vendor.js.map"}
+                        ]
+                    })
+                    .to_string(),
+                ),
+            ],
+        )
+        .unwrap();
+        let e = Engine::new(crate::testing::session());
+        let source = call(&e, "app_source_import", json!({"path": src})).unwrap();
+        let comparison = call(&e, "js_source_bundle_compare", json!({"source": retained(&source), "application": dist})).unwrap();
+        assert_eq!(comparison["result"]["summary"]["matched"], 1, "{}", comparison["result"]);
+        assert_eq!(comparison["result"]["source_map_external_sections"], true);
+        assert_eq!(comparison["result"]["unmatched_sources"], json!([]));
+        assert_eq!(comparison["result"]["uncertain_sources"], json!([{"source": "src/vendor.js", "reason": "source_map_external_sections"}]));
+        assert!(comparison["limitations"].as_array().unwrap().iter().any(|l| l["code"] == "source_map_external_sections"));
+        assert_eq!(comparison["coverage"]["status"], "partial");
     }
 
     #[test]
