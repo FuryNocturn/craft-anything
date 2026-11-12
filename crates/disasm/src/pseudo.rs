@@ -4,7 +4,7 @@
 //! graph isn't structured. Calls get resolved names and arguments from the calling convention;
 //! string literals are inlined.
 
-use crate::decode::{ArmConsts, Cond, Flow, Insn, Kind, MemOp, Mode, Op, canonical_reg};
+use crate::decode::{ArmConsts, Cond, Flow, Insn, Kind, MemOp, Mode, Op, Shift, canonical_reg};
 use crate::image::Image;
 use crate::program::{Function, Program};
 use craft_anything_formats::Format;
@@ -93,6 +93,38 @@ fn ty(size: u8) -> &'static str {
     }
 }
 
+/// A shifted or extended register as C: the shift's signedness and width are spelled out, since
+/// registers have no types here.
+fn shifted(reg: &str, shift: Shift, n: u8) -> String {
+    let bits: u8 = if reg.starts_with('w') { 32 } else { 64 };
+    // (the extension, the 64-bit type it widens to before a shift)
+    let (cast, wide) = match shift {
+        Shift::Lsl => return format!("({reg} << {n})"),
+        Shift::Lsr => return format!("((uint{bits}_t){reg} >> {n})"),
+        Shift::Asr => return format!("((int{bits}_t){reg} >> {n})"),
+        Shift::Ror => {
+            return match bits.checked_sub(n) {
+                Some(back) if n > 0 && back > 0 => format!("((uint{bits}_t){reg} >> {n} | (uint{bits}_t){reg} << {back})"),
+                _ => reg.to_string(),
+            };
+        }
+        Shift::Uxtb => ("uint8_t", "uint64_t"),
+        Shift::Uxth => ("uint16_t", "uint64_t"),
+        Shift::Uxtw => ("uint32_t", "uint64_t"),
+        Shift::Uxtx => ("uint64_t", "uint64_t"),
+        Shift::Sxtb => ("int8_t", "int64_t"),
+        Shift::Sxth => ("int16_t", "int64_t"),
+        Shift::Sxtw => ("int32_t", "int64_t"),
+        Shift::Sxtx => ("int64_t", "int64_t"),
+    };
+    // Extend, then widen before shifting, so the shift can't lose the bits C's narrower type would drop.
+    match n {
+        0 => format!("({cast}){reg}"),
+        _ if cast == wide => format!("(({wide}){reg} << {n})"),
+        _ => format!("(({wide})({cast}){reg} << {n})"),
+    }
+}
+
 fn imm(v: i64) -> String {
     if (-16..=16).contains(&v) {
         v.to_string()
@@ -145,7 +177,7 @@ impl Lifter<'_> {
             parts.push(b.clone());
         }
         if let Some(i) = &m.index {
-            parts.push(if m.scale > 1 { format!("{i} * {}", m.scale) } else { i.clone() });
+            parts.push(self.index_expr(i, m));
         }
         if m.disp != 0 || parts.is_empty() {
             parts.push(imm(m.disp));
@@ -174,12 +206,22 @@ impl Lifter<'_> {
             parts.push(b.clone());
         }
         if let Some(i) = &m.index {
-            parts.push(if m.scale > 1 { format!("{i} * {}", m.scale) } else { i.clone() });
+            parts.push(self.index_expr(i, m));
         }
         if m.disp != 0 || parts.is_empty() {
             parts.push(imm(m.disp));
         }
         format!("*({}*)({})", ty(m.size), parts.join(" + ").replace("+ -", "- "))
+    }
+
+    /// An index register as it enters the address: extended when the instruction extends it
+    /// (`[x1, w2, sxtw #2]`), scaled when the encoding only says a scale (x86), plain otherwise.
+    fn index_expr(&mut self, index: &str, m: &MemOp) -> String {
+        match m.index_shift {
+            Some(s) => shifted(index, s.shift, s.amount),
+            None if m.scale > 1 => format!("{index} * {}", m.scale),
+            None => index.to_string(),
+        }
     }
 
     fn op(&mut self, o: &Op) -> String {
@@ -188,6 +230,7 @@ impl Lifter<'_> {
             Op::Imm(v) => imm(*v),
             Op::Mem(m) => self.mem(m),
             Op::Addr(a) => self.address_of(*a),
+            Op::Shifted { reg, shift, amount } => shifted(reg, *shift, *amount),
         }
     }
 
@@ -251,6 +294,26 @@ impl Lifter<'_> {
         // Win64 outgoing stack arguments stored in this block: rsp offset → (statement, value).
         let mut stack_args: BTreeMap<i64, (usize, String)> = BTreeMap::new();
         for (k, i) in insns.iter().enumerate() {
+            let exclusive_memory = self.mode == Mode::A64
+                && matches!(
+                    i.mnemonic.as_str(),
+                    "ldxr"
+                        | "ldxrb"
+                        | "ldxrh"
+                        | "ldaxr"
+                        | "ldaxrb"
+                        | "ldaxrh"
+                        | "ldxp"
+                        | "ldaxp"
+                        | "stxr"
+                        | "stxrb"
+                        | "stxrh"
+                        | "stlxr"
+                        | "stlxrb"
+                        | "stlxrh"
+                        | "stxp"
+                        | "stlxp"
+                );
             // A register read by a later instruction keeps its assignment.
             if !matches!(i.flow, Flow::Call { .. } | Flow::IndirectCall { .. }) {
                 for r in &i.reads {
@@ -258,7 +321,7 @@ impl Lifter<'_> {
                 }
             }
             // AArch64 page loads and import-slot loads are shown through what uses them.
-            if i.kind == Kind::Adrp || (i.kind == Kind::Load && i.refs.first().is_some_and(|r| self.prog.import_slots.contains_key(r))) {
+            if i.kind == Kind::Adrp || (!exclusive_memory && i.kind == Kind::Load && i.refs.first().is_some_and(|r| self.prog.import_slots.contains_key(r))) {
                 continue;
             }
             let d = i.ops.first().map(|o| self.op(o));
@@ -271,6 +334,11 @@ impl Lifter<'_> {
             };
             let frame_reg = |r: &str| matches!(canonical_reg(r).as_str(), "rsp" | "rbp" | "sp" | "x29" | "x30");
             match (i.kind, &i.flow) {
+                // Plain assignments would lose the exclusive monitor and conditional-store semantics.
+                _ if exclusive_memory => {
+                    self.asm_fallbacks += 1;
+                    stmt = Some(format!("__asm(\"{}\");", escape(&i.text())));
+                }
                 (_, Flow::Call { .. } | Flow::IndirectCall { .. }) => {
                     let name = self.call_name(i);
                     if self.calls.len() < 512 {
@@ -384,6 +452,16 @@ impl Lifter<'_> {
                         stmt = Some(format!("{dd} = {ss};"));
                     }
                 }
+                (Kind::Insert, _) => match (i.ops.get(1), i.ops.get(2)) {
+                    (Some(Op::Imm(v)), Some(Op::Imm(keep))) => {
+                        let dd = d.clone().unwrap_or_default();
+                        stmt = Some(format!("{dd} = ({dd} & {:#x}) | {:#x};", *keep as u64, *v as u64));
+                    }
+                    _ => {
+                        self.asm_fallbacks += 1;
+                        stmt = Some(format!("__asm(\"{}\");", escape(&i.text())));
+                    }
+                },
                 (Kind::Lea, _) => {
                     let e = match i.ops.get(1) {
                         Some(Op::Mem(m)) => match m.addr {
@@ -1063,7 +1141,7 @@ pub fn lift(img: &Image, prog: &Program, f: &Function, names: &dyn Fn(u64) -> Op
     }
     // Parameters: argument registers read before written in the entry block.
     let mut params = Vec::new();
-    if let Some(entry_block) = per_block.first() {
+    if let Some(entry_block) = f.blocks.iter().position(|b| b.start == f.entry).and_then(|i| per_block.get(i)) {
         let mut written: BTreeSet<String> = BTreeSet::new();
         for i in entry_block {
             if matches!(i.flow, Flow::Call { .. } | Flow::IndirectCall { .. }) {
@@ -1217,6 +1295,29 @@ mod tests {
         assert!(!text.contains("puts()"), "{text}");
     }
 
+    /// `sub w9, w9, w9, lsl #3` came out as `w9 -= w9;`: the shift of a register operand was dropped.
+    #[test]
+    fn aarch64_shifted_operands_keep_their_shift() {
+        // add w9, w10, w9, lsr #31; sub w9, w9, w9, lsl #3; add x0, x1, x2, asr #4;
+        // add x3, x1, w2, sxtw #2; add x4, x1, w2, uxtw; orr x5, x1, x2, ror #8; ret
+        let words = [0x0b49_7d49u32, 0x4b09_0d29, 0x8b82_1020, 0x8b22_c823, 0x8b22_4024, 0xaac2_2025, 0xd65f_03c0];
+        let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
+        let image = Image::raw(Arc::from(bytes), craft_anything_formats::Arch::Aarch64, 0x1000);
+        let program = Program::analyze(&image, &Limits::default(), &NoControl).unwrap();
+        let p = lift(&image, &program, program.functions.get(&0x1000).unwrap(), &|_| None);
+        for want in [
+            "w9 = w10 + ((uint32_t)w9 >> 31);",
+            "w9 -= (w9 << 3);",
+            "x0 = x1 + ((int64_t)x2 >> 4);",
+            "x3 = x1 + ((int64_t)(int32_t)w2 << 2);",
+            "x4 = x1 + (uint32_t)w2;",
+            "x5 = x1 | ((uint64_t)x2 >> 8 | (uint64_t)x2 << 56);",
+        ] {
+            assert!(p.text.contains(want), "{want}\n{}", p.text);
+        }
+        assert!(!p.text.contains("w9 -= w9;"), "{}", p.text);
+    }
+
     #[test]
     fn main_and_helper_read_like_c() {
         let (elf, _) = tk::elf64(tk::ElfArch::X86_64, true);
@@ -1275,6 +1376,45 @@ mod tests {
         assert!(main.text.contains("puts(\"Hello, Craft!\")"), "{}", main.text);
         let helper = lift(&img, &p, p.function_by_name("helper").unwrap(), &none);
         assert!(helper.text.contains("w0 == 0") || helper.text.contains("w0 != 0"), "{}", helper.text);
+    }
+
+    fn lift_a64(words: &[u32]) -> Pseudo {
+        let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
+        let image = Image::raw(Arc::from(bytes), craft_anything_formats::Arch::Aarch64, 0x1000);
+        let program = Program::analyze(&image, &Limits::default(), &NoControl).unwrap();
+        let f = program.functions.get(&0x1000).unwrap();
+        lift(&image, &program, f, &|_| None)
+    }
+
+    /// `ldr w0, [x1, w2, sxtw #2]` read the index as the plain register, so the address lost
+    /// the sign extension (R3.11).
+    #[test]
+    fn aarch64_extended_memory_indices_keep_the_extension() {
+        // ldr w0, [x1, w2, sxtw #2]; ldr x6, [x7, x8, lsl #3]; ldr x24, [x25, w26, uxtw];
+        // ldr x15, [x16, x17]; str w9, [x10, w11, sxtw #2]; ret
+        let words = [0xb862_d820u32, 0xf868_78e6, 0xf87a_4b38, 0xf871_6a0f, 0xb82b_d949, 0xd65f_03c0];
+        let p = lift_a64(&words);
+        for want in [
+            "w0 = *(void*)(x1 + ((int64_t)(int32_t)w2 << 2));",
+            "x6 = *(void*)(x7 + (x8 << 3));",
+            "x24 = *(void*)(x25 + (uint32_t)w26);",
+            "x15 = *(void*)(x16 + x17);",
+            "*(void*)(x10 + ((int64_t)(int32_t)w11 << 2)) = w9;",
+        ] {
+            assert!(p.text.contains(want), "{want}\n{}", p.text);
+        }
+        assert!(!p.text.contains("*(void*)(x1 + x2)"), "{}", p.text);
+        assert!(!p.text.contains("*(void*)(x10 + x11)"), "{}", p.text);
+    }
+
+    /// `mov x19, x0` came out as `x19 = xzr;`: the zero register of its ORR form was taken as the value.
+    #[test]
+    fn aarch64_moves_copy_the_source_not_the_zero_register() {
+        // mov x19, x0; mov w1, w2; mov w0, #0xff00ff00; ret
+        let p = lift_a64(&[0xaa00_03f3, 0x2a02_03e1, 0x3208_9fe0, 0xd65f_03c0]);
+        assert!(p.text.contains("x19 = x0;") && p.text.contains("w1 = w2;"), "{}", p.text);
+        assert!(p.text.contains("w0 = 0xff00ff00;"), "{}", p.text);
+        assert!(!p.text.contains("zr"), "{}", p.text);
     }
 
     #[test]
@@ -1367,5 +1507,20 @@ mod tests {
         assert!(p.text.contains("__asm(") && !p.text.contains("r0 = 0;") && p.asm_fallbacks == 1, "{}", p.text);
         let i = crate::decode::decode(Mode::A32, &0xe591_0004u32.to_le_bytes(), 0x1000, false).unwrap();
         assert!(i.reads.contains(&"r1".to_string()) && i.writes == ["r0"], "{i:?}");
+    }
+
+    /// `movk w9, #0x9249, lsl #16` came out as `w9 = 0x92490000;`, losing the low half set just
+    /// before, and `mov w0, #-1` (MOVN) as `w0 = 0;`.
+    #[test]
+    fn aarch64_move_wide_immediates_keep_their_value() {
+        // mov w9, #0x2493; movk w9, #0x9249, lsl #16; mov w0, #-1; ret
+        let bytes: Vec<u8> = [0x5284_9269u32, 0x72b2_4929, 0x1280_0000, 0xd65f_03c0].iter().flat_map(|w| w.to_le_bytes()).collect();
+        let image = Image::raw(Arc::from(bytes), craft_anything_formats::Arch::Aarch64, 0x1000);
+        let program = Program::analyze(&image, &Limits::default(), &NoControl).unwrap();
+        let p = lift(&image, &program, program.functions.get(&0x1000).unwrap(), &|_| None);
+        assert!(p.text.contains("w9 = 0x2493;"), "{}", p.text);
+        assert!(p.text.contains("w9 = (w9 & 0xffff) | 0x92490000;"), "{}", p.text);
+        assert!(p.text.contains("w0 = -1;") && !p.text.contains("w0 = 0;"), "{}", p.text);
+        assert_eq!(p.asm_fallbacks, 0, "{}", p.text);
     }
 }
