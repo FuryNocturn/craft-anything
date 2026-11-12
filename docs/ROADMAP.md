@@ -309,7 +309,7 @@ only when it's green and a maintainer has fully reviewed it, code as well as wor
       translations: `cargo xtask i18n-coverage` accepts strings listed as awaiting translation,
       and the translation PR empties the list
       — claimed: tanish2k09, branch chore/r5.2-awaiting-translation
-- [ ] `tools::android_tools::jeb::tests::not_configured_refused_and_remote_urls` fails now and
+- [x] `tools::android_tools::jeb::tests::not_configured_refused_and_remote_urls` fails now and
       then: it binds port 0, drops the listener and expects nothing to answer there, while the
       stand-in JEB servers of the tests beside it bind port 0 too and can be handed that port.
       Seen once in six whole-suite runs on Windows 11: `engines_jeb_check` got a stand-in's answer.
