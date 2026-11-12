@@ -982,10 +982,14 @@ Owner: open · Status: in progress
       does — PR #1210; claimed: rmsff, branch feature/r2.2-aider-project-settings
 - [ ] Aider over SSH: its setup check still reads this computer's environment and home folder.
       Read the remote host's `~/.env`, `~/.aider.conf.yml` and `~/.aider/oauth-keys.env` there
-- [ ] Every adapter but Claude Code's still takes the message in argv (`prompt_on_stdin`), so a long
-      one can pass Windows' command-line limit as Claude Code's did (#402); hand each its message on
-      stdin or in a file where its CLI reads one
-      — claimed: FuryNocturn, branch feature/r2.2-message-off-argv (OpenCode)
+- [x] OpenCode takes its message on stdin (`opencode run` with no message argument reads it there,
+      V1 and V2), so a long one can't pass Windows' command-line limit (#402), as Claude Code, Codex,
+      Gemini CLI and DeepSeek Harness already do
+      — claimed: FuryNocturn, branch feature/r2.2-message-off-argv
+- [ ] Aider, Hermes, Maki, Devin and Antigravity still take the message in argv
+      (`prompt_on_stdin`), so a long one can pass Windows' command-line limit (#402). Aider has
+      `--message-file`, which needs a file the run writes (on the remote host over SSH); for the
+      others, find in their source whether they read a message from stdin or a file
 - [ ] A note sent during a build reaches the builder at its next step on other coding agents with
       tool hooks, and on the API-backend loop between tool calls (Claude Code only today)
 - [ ] Session copies for other agents that keep sessions (ACP agents' `session/load`) (#451)
