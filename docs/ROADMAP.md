@@ -640,7 +640,7 @@ Owner: open · Status: todo
       OpenAI-compatible endpoint)
 - [x] Failure logs for API-backend stops, like the ones agent CLIs write to `logs/` in the config
       folder: a failed model turn writes one (`agent::write_failure_log`) and the error names it
-- [ ] Failure logs for an MCP server that doesn't start
+- [ ] Failure logs for an MCP server that doesn't start — claimed: FuryNocturn, branch feature/r5.5-plugin-failure-log
 - [x] Settings → AI can replace or forget an API backend's saved key, so a key rotated in the
       environment isn't hidden behind an older saved one (#1358); `ai key <name>` shows, replaces
       or forgets it headlessly, and never prints it
