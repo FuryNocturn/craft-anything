@@ -13,7 +13,7 @@ pub mod config;
 pub mod context;
 pub mod detect;
 mod failure;
-pub mod failure_log;
+pub use craft_anything_engine::failure_log;
 pub mod http;
 pub mod key_tools;
 pub mod keys;
