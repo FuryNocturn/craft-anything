@@ -55,7 +55,7 @@ pub fn section(app: &mut CraftApp, ui: &mut Ui, fold: bool) {
     let shown = app.state.investigations_shown;
     let r = ui
         .horizontal(|ui| {
-            ui.add_space(12.0);
+            ui.add_space(crate::theme::space::MD);
             widgets::caption(ui, "Earlier investigations");
             let (rect, resp) = ui.allocate_exact_size(Vec2::splat(18.0), egui::Sense::click());
             icons::paint(ui, rect, if shown { "chevron-down" } else { "chevron-right" }, 14.0, t.icon);
@@ -68,7 +68,7 @@ pub fn section(app: &mut CraftApp, ui: &mut Ui, fold: bool) {
     if r.clicked() {
         app.state.investigations_shown = !shown;
     }
-    ui.add_space(4.0);
+    ui.add_space(crate::theme::space::XS);
     if shown {
         let mut open = None;
         for inv in app.investigations.iter().take(SHOWN) {
