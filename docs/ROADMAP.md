@@ -962,7 +962,7 @@ Owner: open · Status: in progress
       build's model check woke it, and a session left from days before went on editing another
       project. Discover with a private server unless the person chose `--server`
       — claimed: youkaicountry, branch bugfix/r2.2-opencode-discovery-standalone
-- [ ] OpenCode's private server can answer model discovery with 503 `ServiceUnavailableError`
+- [x] OpenCode's private server can answer model discovery with 503 `ServiceUnavailableError`
       ("Location plugins did not finish activating") while it starts, now and then, and the
       question or build stops before it begins (#1859). Ask once more after a short pause when
       that is what it said; a turn already retries OpenCode's 503s
