@@ -1019,6 +1019,11 @@ Owner: open · Status: in progress
       `null`; setup and the builder now approve our tools for Codex (we still ask before running
       code) and a refusal explains the fix (`docs/codex.md`)
 - [ ] Codex (#540): run `codex exec` on a real install and check `rebuild_start` gets through
+- [ ] Codex (#1867): a refusal of one of our tools that setup doesn't approve (`build_command_run`)
+      tells the person to run `setup --client codex`, which changes nothing for it. Say how to
+      approve that tool in Codex's own `config.toml` instead, and keep the setup hint for the tools
+      setup approves (`AGENT_APP_PREAPPROVED_TOOLS`)
+      — claimed: FuryNocturn, branch bugfix/r2.2-codex-blocked-tool-hint
 - [x] Codex: resume support (`codex exec resume <id>`), verified on a real install
       — claimed: Codex, branch feature/r2.2-codex-resume (local workspace)
       — verified on macOS with Codex 0.169.0-alpha.11.1: MCP call, sandboxed file write,
