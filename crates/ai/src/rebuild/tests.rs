@@ -3121,11 +3121,22 @@ fn an_app_rebuilt_as_a_website_is_checked_by_building_it() {
     let b = brief(&ws, "app", true, false, None, false, None);
     assert!(b.contains(kinds::SITE_BRIEF) && !b.contains(kinds::screenshot::SCREENSHOT_CONTRACT), "{b}");
     assert!(b.contains(kinds::mechanics::MECHANICS_CONTRACT), "Deep mode still asks for the sheet");
+    // With pictures of the original, neither builder is told about a --screenshot run.
+    let pic = d.path().join("shot.png");
+    std::fs::write(&pic, "x").unwrap();
+    ws.add_references(&[pic]).unwrap();
+    for sees in [true, false] {
+        let b =
+            super::brief(&AppKind, &BriefCx { ws: &ws, deep: false, ghidra: false, editor: None, assets: false, image_model: None, sees_pictures: sees }, None);
+        assert!(b.contains("reference/picture-1.png") && !b.contains("--screenshot to a file"), "sees {sees}: {b}");
+        assert!(!b.contains("runs the program with --screenshot"), "sees {sees}: {b}");
+    }
 
     // A windowed app's stack keeps the picture.
     ws.manifest.stack = "Rust + egui (eframe)".into();
     assert!(AppKind.checks(&ws).iter().any(|c| c.id() == "app-screenshot"));
-    assert!(brief(&ws, "app", false, false, None, false, None).contains(kinds::screenshot::SCREENSHOT_CONTRACT));
+    let b = brief(&ws, "app", false, false, None, false, None);
+    assert!(b.contains(kinds::screenshot::SCREENSHOT_CONTRACT) && b.contains("--screenshot to a file"), "{b}");
 }
 
 #[test]

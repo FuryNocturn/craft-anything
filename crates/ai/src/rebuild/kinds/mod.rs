@@ -122,8 +122,9 @@ pub trait TargetKind: Send + Sync {
     fn follow_up_sections(&self, _cx: &BriefCx) -> Vec<String> {
         Vec::new()
     }
-    /// The result can't be photographed from outside, so the builder screenshots its own.
-    fn self_screenshots(&self) -> bool {
+    /// The result can't be photographed from outside, so the builder screenshots its own (and is
+    /// told so beside the pictures of the original).
+    fn self_screenshots(&self, _ws: &Workspace) -> bool {
         true
     }
     /// How a follow-up tells the builder to rebuild.

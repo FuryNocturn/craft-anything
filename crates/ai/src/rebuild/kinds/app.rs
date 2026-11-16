@@ -26,6 +26,12 @@ impl TargetKind for AppKind {
         Self::ID
     }
 
+    /// A site stack has no `--screenshot` run to picture (#1758), so the pictures of the original
+    /// don't ask for one either.
+    fn self_screenshots(&self, ws: &Workspace) -> bool {
+        !built_as_site(ws)
+    }
+
     fn words(&self) -> KindWords {
         KindWords {
             button: "Open the app",
