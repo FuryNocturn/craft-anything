@@ -40,6 +40,9 @@ pub struct ArgsCx<'a> {
     /// A question about a build: only reading (none in Clean room), no tool server, and a fresh
     /// session or a fork that leaves the builder's session unchanged.
     pub question: bool,
+    /// Where the message was written, for an adapter that [reads it from a file](AgentAdapter::reads_message_file);
+    /// None over SSH, or when the file couldn't be written, and the message goes in argv.
+    pub message_file: Option<&'a Path>,
 }
 
 /// One way of driving an agent CLI.
@@ -73,9 +76,19 @@ pub trait AgentAdapter: Send + Sync {
     }
     /// Refuse options that the native transport cannot support, before preflight or process I/O.
     /// Saving a model choice and discovering its catalogue do not imply native execution support.
-    /// `cwd` is the folder the agent will run in on this computer; none for a run over SSH.
+    /// `cwd` is the folder the agent will run in on this computer.
     fn check_native_options(&self, _options: &BackendOptions, _cwd: Option<&Path>) -> Result<(), ToolError> {
         Ok(())
+    }
+
+    /// Check native settings where an SSH agent actually runs.
+    fn check_remote_options(&self, options: &BackendOptions, _host: &str, _stop: &Stop) -> Result<(), ToolError> {
+        self.check_native_options(options, None)
+    }
+
+    /// An environment setting that must be applied on the SSH host.
+    fn remote_run_env(&self) -> Option<(&'static str, String)> {
+        None
     }
 
     /// Use ACP by default and refuse the per-message CLI runner. An explicit `acp = false` or
@@ -179,6 +192,12 @@ pub trait AgentAdapter: Send + Sync {
     /// The message goes in on stdin, not in argv: a long one passes Windows' command-line limit
     /// ("The filename or extension is too long", os error 206, #402).
     fn prompt_on_stdin(&self) -> bool {
+        false
+    }
+    /// The message (preamble first) goes in a file on this computer, named in
+    /// [`ArgsCx::message_file`], for an agent that reads one but not stdin: a long one passes
+    /// Windows' command-line limit too (#402).
+    fn reads_message_file(&self) -> bool {
         false
     }
     /// What goes in on stdin when [`prompt_on_stdin`](AgentAdapter::prompt_on_stdin) says so:
@@ -1005,7 +1024,7 @@ fn codex_login_status(success: bool, stdout: &str, stderr: &str) -> Option<bool>
 /// What a finished Codex tool call says. A failed call carries `"result": null` beside its
 /// `error`, which showed as "null" (#540), so null fields are skipped and an error's message is
 /// used as written. Codex's refusal to run one of our tools it can't ask about gets the way out.
-fn codex_tool_text(item: &Value, tool: &str, ours: bool) -> String {
+pub(crate) fn codex_tool_text(item: &Value, tool: &str, ours: bool) -> String {
     let field = |k: &str| item.get(k).filter(|v| !v.is_null());
     let error = field("error").map(|e| e.get("message").and_then(Value::as_str).map_or_else(|| e.to_string(), str::to_string));
     let text = match (field("result"), error) {
@@ -1015,9 +1034,16 @@ fn codex_tool_text(item: &Value, tool: &str, ours: bool) -> String {
     };
     // Another MCP server's refusal isn't fixed by our setup: it keeps Codex's own words.
     if ours && text.contains(CODEX_NEEDS_APPROVAL) {
-        // The feed keeps 200 characters of a result, so the fix comes first and fits.
+        // The feed keeps 200 characters of a result, so the fix comes first and fits. Setup
+        // approves only the tools that ask the person themselves; any other is approved, or not,
+        // in the person's own Codex settings, and setup changes nothing for it (#1867).
+        if craft_anything_engine::AGENT_APP_PREAPPROVED_TOOLS.contains(&tool) {
+            return format!(
+                "Codex blocked {tool}: it can't ask for approval here. Fix: run `craft-anything-cli setup --client codex --yes`, then retry. See docs/codex.md."
+            );
+        }
         return format!(
-            "Codex blocked {tool}: it can't ask for approval here. Fix: run `craft-anything-cli setup --client codex --yes`, then retry. See docs/codex.md."
+            "Codex blocked {tool}: it can't ask for approval here. To allow it, add {tool} = {{ approval_mode = \"approve\" }} inside `tools` in Codex's config.toml."
         );
     }
     text

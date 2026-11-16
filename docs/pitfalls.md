@@ -157,6 +157,12 @@ must release that resource and empty its registry. Do not reserve and release a 
 CI the banner moved the layout under another test running beside it, and its click missed. It passed
 25 runs on a Mac. Anything a test sets for the whole process goes in a test program of its own.
 
+**A released file lock that still looked held.** Saved sign-in reservations use `flock`; a
+program another thread was starting held a copy of the lock file until its exec closed it, so a
+sign-out right after the reservation was dropped was refused as busy in about one full engine
+run in four, never alone. A non-blocking lock tries again for a moment (`lock_site`'s
+`LOCK_GRACE`) before calling something busy, and a lock test is run inside the full suite.
+
 **A free port handed to another test.** For a negative TCP probe, a bound port stopped being
 ours as soon as its listener was dropped. Another fixture could acquire it before the probe.
 Use the unassigned loopback port zero to exercise a real connection refusal without borrowing
@@ -295,6 +301,15 @@ the whole group, so websites never opened ("closed after 0.3 s"). Where it didn'
 browser outlived the CLI (the job isn't killed when closed) and held the shell's output pipe, so
 the command hung and old browsers piled up. Start programs that hand off with `.hands_off()`, and
 after a live run check that the command returned and nothing it started is still running.
+
+**A live browser test that died on a line about crashpad.** On Ubuntu with
+`kernel.apparmor_restrict_unprivileged_userns=1`, a Chromium that has no AppArmor profile (Playwright's
+copy, Chrome for Testing) can't build its sandbox and exits at once; the only stderr line we kept was a
+harmless crashpad warning (`cpufreq/scaling_max_freq`), so all five live sign-in tests failed in 1.5 s with
+"closed before it was ready". Don't turn the sandbox off in the product for it: point
+`CRAFT_ANYTHING_TEST_CHROMIUM` at a throwaway wrapper in `/tmp` that adds `--no-sandbox`, only for a browser
+that visits a server on 127.0.0.1. A helper that connects the moment the debugging port file appears must
+also wait for the first page target (`first_page`): it raced the browser's own start.
 
 **A separate config folder hides the agent's own settings.** To keep a live run from touching the
 real `config.toml`, `XDG_CONFIG_HOME` was pointed at a scratch folder; the agent CLI we start reads
@@ -569,6 +584,15 @@ beside an external one, a nested index map, and the sources-only read used for b
 `formats::sourcemap`, but `js::find_map_url` kept requiring a literal space, so a bundle with the
 standard no-space annotation was analysed without its map. Have one implementation and call it
 from both places; a regression at the consumer's public entry point catches a copy that drifts.
+The same happened with the PE optional header: `pe::headers` was bounded by `SizeOfOptionalHeader`,
+but `dotnet::pe::parse_pe` still read data directory 14 at a fixed offset, so a short declared
+header could borrow the CLI directory from section-table bytes. When a structure's declared size
+is enforced, search every reader of its fixed offsets and test each one with a short declared size.
+
+**A carver read optional-header fields the header didn't declare.** The firmware scanner read the
+PE certificate table and `SizeOfHeaders` at fixed offsets even when `SizeOfOptionalHeader` ended
+first, so a short header could over-carve into the next embedded object. Bound every fixed-offset
+field by the declared header, and test a short declared size beside the full-header control.
 
 **A floating-point conversion changed a fingerprint.** Widening a single-precision NaN to a double
 can change its sign, payload or signaling bit. Keep the original encoded bits for identities, and
@@ -874,6 +898,13 @@ named limitation, and make the map partial; test both the old 2,000 boundary and
 clients. The journal only redacts by field name. When a setting can hold a secret, hide its value
 in every tool that prints settings, and test that it doesn't appear.
 
+**Network access that became account access.** Restricted MCP hid the sign-in tools, but
+`web_site_open`, allowed by `--allow-web`, picked a saved sign-in by default, so a client that
+couldn't sign in could still browse the person's account. When a tool gains a default that reaches
+stored credentials, check every mode that admits it, and give the narrower mode its own rule.
+The same profile copy also carried the browser's saved-password store: "we never store a
+password" has to cover what the browser itself offers to keep.
+
 **A secret check that matched a word inside a name.** `cargo xtask secrets` took any variable
 with `AUTH` in its name as a secret; git sets `GIT_AUTHOR_NAME` while the hook runs, so a contributor
 whose git name is their handle couldn't commit their own roadmap claim. Name the exceptions
@@ -1035,6 +1066,11 @@ normalize at the provider boundary; test serialized requests for known and unkno
 
 **A sender could exceed its MCP receiver's target limit.** Bound the handoff to the receiver's
 accepted count and retain the active target; test the boundary, truncation order and remote mode.
+
+**A present protocol field was not a valid one.** The MCP server echoed `_meta.progressToken`
+whenever it was present, including `null` and objects, so it sent progress for values the protocol
+doesn't allow. Check a protocol field's type, not only its presence, before acting on it; test
+missing, null, wrong-type and valid values.
 
 **A finding correction reset omitted confidence to inferred.** Edit defaults must preserve existing
 values unless explicitly changed; test omitted fields and every supplied confidence level.
@@ -1213,3 +1249,8 @@ child. Preserve ordinary output paths and put collisions in an independent input
 directory; keep complete source identities in the manifest. Check both prefix orders and
 same-named input scripts through the real recovery tool, and retain the writer's symlink and
 exclusive-creation checks after selecting a name.
+
+**A settings smoke test clicked before scrolling settled.** An asynchronous refusal added a row,
+then a fixed number of frames left the next action outside the settled layout. Wait for the
+background operation to finish and run immediate repaints after scrolling before clicking;
+otherwise a missed click looks like a backend mutation that never completed.
