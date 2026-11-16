@@ -13,7 +13,7 @@ pub mod config;
 pub mod context;
 pub mod detect;
 mod failure;
-pub mod failure_log;
+pub use craft_anything_engine::failure_log;
 pub mod http;
 pub mod key_tools;
 pub mod keys;
@@ -794,6 +794,33 @@ impl AiHub {
         b.options.effort = effort;
         self.save_config(&cfg)?;
         Ok(true)
+    }
+
+    /// The request rate for a configured API backend. No rate means requests are not paced.
+    pub fn requests_per_minute(&self, name: &str) -> Result<Option<u32>, ToolError> {
+        Self::api_request_rate(&self.entry(name)?)
+    }
+
+    /// Change the rate for future conversations. Zero removes the pacing setting.
+    pub fn set_requests_per_minute(&self, name: &str, rate: u32) -> Result<Option<u32>, ToolError> {
+        let mut config = self.config_to_change()?;
+        let entry = config.backends.iter_mut().find(|entry| entry.config.name == name).ok_or_else(|| {
+            ToolError::invalid(format!("No AI backend named {name:?}")).with_remediation("See `craft-anything-cli ai list`, or add one in Settings → AI.")
+        })?;
+        Self::api_request_rate(entry)?;
+        let requested = Some(rate).filter(|rate| *rate != 0);
+        if entry.options.requests_per_minute != requested {
+            entry.options.requests_per_minute = requested;
+            self.save_config(&config)?;
+        }
+        Ok(requested)
+    }
+
+    fn api_request_rate(entry: &BackendEntry) -> Result<Option<u32>, ToolError> {
+        if entry.config.kind == BackendKind::AgentCli {
+            return Err(ToolError::invalid("Agent apps send their own requests. Set a request rate on an API backend."));
+        }
+        Ok(entry.options.requests_per_minute.filter(|rate| *rate != 0))
     }
 
     /// The models a backend can be set to: the API's or registered agent's list.

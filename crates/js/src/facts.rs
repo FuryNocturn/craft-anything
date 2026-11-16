@@ -8,6 +8,7 @@ use oxc_ast::ast::*;
 use oxc_ast_visit::{Visit, walk};
 use oxc_semantic::Scoping;
 use oxc_span::GetSpan;
+use oxc_syntax::number::ToJsString;
 use oxc_syntax::scope::ScopeFlags;
 use oxc_syntax::symbol::SymbolId;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -152,6 +153,15 @@ struct Frame {
     index: usize,
 }
 
+/// What `+` needs to know about a value read through constants.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ValueType {
+    Text,
+    Number,
+    /// Neither is known, as for `x + 1` with `x` unreadable.
+    Unknown,
+}
+
 pub(crate) struct FactVisitor<'s> {
     src: &'s str,
     lines: &'s LineIndex,
@@ -160,6 +170,8 @@ pub(crate) struct FactVisitor<'s> {
     scoping: Option<&'s Scoping>,
     aliases: HashMap<Key, Ref>,
     const_strings: HashMap<Key, String>,
+    /// The constants in `const_strings` that hold a number, so `n + 1` adds.
+    const_numbers: HashSet<Key>,
     /// Bytes `const_strings` may still hold: the source's size plus [`CONST_TEXT_SLACK`].
     const_room: usize,
     /// Object literals bound to a variable: name → (prop → qualified function name).
@@ -167,6 +179,16 @@ pub(crate) struct FactVisitor<'s> {
     frames: Vec<Frame>,
     /// Names for upcoming functions, keyed by the function's span start.
     pending: HashMap<u32, String>,
+    /// The variable an upcoming function expression initializes, keyed by its span start.
+    pending_binding: HashMap<u32, Key>,
+    /// Functions bound to a name (`function f`, `const f = () => …`): index in `facts.functions`
+    /// and the binding.
+    fn_bindings: Vec<(usize, Key)>,
+    /// What `export { … }` lists name, resolved to bindings; matched to functions after the walk,
+    /// since the list may come before the declarations.
+    export_locals: HashSet<Key>,
+    /// Listed names that resolve to no binding, as written.
+    export_names: HashSet<String>,
     pending_window: Option<String>,
     object_prefix: Vec<String>,
     class_names: Vec<String>,
@@ -200,10 +222,15 @@ impl<'s> FactVisitor<'s> {
             facts: ModuleFacts::default(),
             aliases: HashMap::new(),
             const_strings: HashMap::new(),
+            const_numbers: HashSet::new(),
             const_room: src.len().saturating_add(CONST_TEXT_SLACK),
             object_members: HashMap::new(),
             frames: Vec::new(),
             pending: HashMap::new(),
+            pending_binding: HashMap::new(),
+            fn_bindings: Vec::new(),
+            export_locals: HashSet::new(),
+            export_names: HashSet::new(),
             pending_window: None,
             object_prefix: Vec::new(),
             class_names: Vec::new(),
@@ -221,6 +248,7 @@ impl<'s> FactVisitor<'s> {
     /// could change them, so the window goes back to `dynamic`. Call after the walk.
     pub fn finish(&mut self) {
         self.api_finish();
+        self.mark_listed_exports();
         let mut spoiled: HashSet<&Key> = HashSet::new();
         // Past the cap an export may have gone unrecorded.
         let all_exported = self.exported.len() >= MAX_LIST;
@@ -242,6 +270,32 @@ impl<'s> FactVisitor<'s> {
                 w.web_preferences = WindowOptions::dynamic().prefs;
                 w.preload = None;
                 w.options_from = None;
+            }
+        }
+    }
+
+    /// Mark the functions `export { … }` lists name. A function bound to a name is exported when
+    /// its binding is listed (`export { f }; function f() {}` included), whether it was declared,
+    /// initialized a variable or was assigned to one. A listed name that resolves to no binding is
+    /// matched by name against module-level functions bound to nothing.
+    fn mark_listed_exports(&mut self) {
+        let mut bound = vec![false; self.facts.functions.len()];
+        for (i, k) in &self.fn_bindings {
+            if let Some(b) = bound.get_mut(*i) {
+                *b = true;
+            }
+            if self.export_locals.contains(k)
+                && let Some(f) = self.facts.functions.get_mut(*i)
+            {
+                f.exported = true;
+            }
+        }
+        if self.export_names.is_empty() {
+            return;
+        }
+        for (f, bound) in self.facts.functions.iter_mut().zip(bound) {
+            if !bound && f.parent.is_none() && self.export_names.contains(&f.name) {
+                f.exported = true;
             }
         }
     }
@@ -335,13 +389,20 @@ impl<'s> FactVisitor<'s> {
     /// Render an expression as a string when it is (partly) literal: `(text, fully_literal)`.
     /// Text built from more than one part is at most [`MAX_CONST_TEXT`] bytes, or `None`.
     pub(crate) fn render_value(&self, e: &Expression<'_>, depth: usize) -> Option<(String, bool)> {
+        self.render_typed(e, depth).map(|(v, literal, _)| (v, literal))
+    }
+
+    /// [`Self::render_value`], also saying whether the value is text or a number, which `+`
+    /// needs: text joins, two numbers add. Numbers read as JavaScript turns them into text
+    /// (`0x10` is `16`).
+    fn render_typed(&self, e: &Expression<'_>, depth: usize) -> Option<(String, bool, ValueType)> {
         if depth > 16 {
             return None;
         }
         match e {
-            Expression::StringLiteral(s) => Some((s.value.to_string(), true)),
-            Expression::NumericLiteral(n) => Some((self.text(n.span).to_string(), true)),
-            Expression::ParenthesizedExpression(p) => self.render_value(&p.expression, depth + 1),
+            Expression::StringLiteral(s) => Some((s.value.to_string(), true, ValueType::Text)),
+            Expression::NumericLiteral(n) => Some((n.value.to_js_string(), true, ValueType::Number)),
+            Expression::ParenthesizedExpression(p) => self.render_typed(&p.expression, depth + 1),
             Expression::TemplateLiteral(t) => {
                 let mut out = String::new();
                 let mut literal = true;
@@ -360,22 +421,37 @@ impl<'s> FactVisitor<'s> {
                         return None;
                     }
                 }
-                Some((out, literal))
+                Some((out, literal, ValueType::Text))
             }
             Expression::BinaryExpression(b) if b.operator == BinaryOperator::Addition => {
-                let l = self.render_value(&b.left, depth + 1);
-                let r = self.render_value(&b.right, depth + 1);
+                let l = self.render_typed(&b.left, depth + 1);
+                let r = self.render_typed(&b.right, depth + 1);
+                let types = (l.as_ref().map(|x| x.2), r.as_ref().map(|x| x.2));
+                if let (Some(ValueType::Number), Some(ValueType::Number)) = types {
+                    // `1 + 2` is 3, not "12".
+                    let ((ls, ll, _), (rs, rl, _)) = (l?, r?);
+                    let sum = ls.parse::<f64>().ok()? + rs.parse::<f64>().ok()?;
+                    return Some((sum.to_js_string(), ll && rl, ValueType::Number));
+                }
                 if l.is_none() && r.is_none() {
                     return None;
                 }
-                let (ls, ll) = l.unwrap_or_else(|| (hole(&b.left, self), false));
-                let (rs, rl) = r.unwrap_or_else(|| (hole(&b.right, self), false));
+                // Text on either side makes `+` join; otherwise it may add, so the result can't
+                // be read as text.
+                let text = matches!(types, (Some(ValueType::Text), _) | (_, Some(ValueType::Text)));
+                let (ls, ll, _) = l.unwrap_or_else(|| (hole(&b.left, self), false, ValueType::Unknown));
+                let (rs, rl, _) = r.unwrap_or_else(|| (hole(&b.right, self), false, ValueType::Unknown));
                 if ls.len().saturating_add(rs.len()) > MAX_CONST_TEXT {
                     return None;
                 }
-                Some((format!("{ls}{rs}"), ll && rl))
+                Some((format!("{ls}{rs}"), ll && rl && text, if text { ValueType::Text } else { ValueType::Unknown }))
             }
-            Expression::Identifier(id) => self.key_ref(id).and_then(|k| self.const_strings.get(&k)).map(|v| (v.clone(), true)),
+            Expression::Identifier(id) => {
+                let k = self.key_ref(id)?;
+                let v = self.const_strings.get(&k)?;
+                let t = if self.const_numbers.contains(&k) { ValueType::Number } else { ValueType::Text };
+                Some((v.clone(), true, t))
+            }
             _ => None,
         }
     }
@@ -384,15 +460,19 @@ impl<'s> FactVisitor<'s> {
     /// either way, so it is never reported in place of the new value. Call after the initializer
     /// has been visited: it may still read the old text (`var u = fetch(u)`). Every constant shares
     /// one budget, so many long ones can't add up without end.
-    fn replace_const(&mut self, k: Key, value: Option<String>) {
+    fn replace_const(&mut self, k: Key, value: Option<(String, ValueType)>) {
         if let Some(old) = self.const_strings.remove(&k) {
             self.const_room = self.const_room.saturating_add(old.len());
         }
-        if let Some(v) = value
+        self.const_numbers.remove(&k);
+        if let Some((v, t)) = value
             && v.len() <= MAX_CONST_TEXT
             && v.len() <= self.const_room
         {
             self.const_room = self.const_room.saturating_sub(v.len());
+            if t == ValueType::Number {
+                self.const_numbers.insert(k.clone());
+            }
             self.const_strings.insert(k, v);
         }
     }
@@ -1218,8 +1298,15 @@ impl<'a> Visit<'a> for FactVisitor<'_> {
         for s in &it.specifiers {
             push_unique(&mut self.facts.exports.esm, s.exported.name().to_string(), MAX_LIST);
             let local = s.local.name().to_string();
-            for f in self.facts.functions.iter_mut().filter(|f| f.name == local) {
-                f.exported = true;
+            if self.export_locals.len() + self.export_names.len() < MAX_LIST {
+                let key = match &s.local {
+                    ModuleExportName::IdentifierReference(r) => self.key_ref(r),
+                    _ => None,
+                };
+                match key {
+                    Some(k) => self.export_locals.insert(k),
+                    None => self.export_names.insert(local.clone()),
+                };
             }
             if self.exported.len() < MAX_LIST {
                 self.exported.insert(Key::Name(local));
@@ -1290,11 +1377,15 @@ impl<'a> Visit<'a> for FactVisitor<'_> {
             }
             if let Some(n) = &name {
                 if let BindingPattern::BindingIdentifier(b) = &it.id {
-                    let value = self.render_value(inner, 0).and_then(|(v, literal)| literal.then_some(v));
+                    let value = self.render_typed(inner, 0).and_then(|(v, literal, t)| literal.then_some((v, t)));
                     replacement = Some((self.key_bind(b), value));
                 }
                 if is_function_like(inner) {
                     self.name_next(inner, n.clone());
+                    if let BindingPattern::BindingIdentifier(b) = &it.id {
+                        let k = self.key_bind(b);
+                        self.pending_binding.insert(inner.span().start, k);
+                    }
                 } else if let Expression::NewExpression(_) = inner {
                     self.pending_window = Some(n.clone());
                 } else if let Expression::ObjectExpression(o) = inner {
@@ -1375,6 +1466,12 @@ impl<'a> Visit<'a> for FactVisitor<'_> {
             }
             if is_function_like(right) {
                 self.name_next(right, t.clone());
+                // `f = () => …` binds the function to `f` wherever it happens (`init() { f = … }`).
+                if let AssignmentTarget::AssignmentTargetIdentifier(id) = &it.left
+                    && let Some(k) = self.key_ref(id)
+                {
+                    self.pending_binding.insert(right.span().start, k);
+                }
             } else if let Expression::NewExpression(_) = right {
                 self.pending_window = Some(t.clone());
             }
@@ -1441,7 +1538,14 @@ impl<'a> Visit<'a> for FactVisitor<'_> {
             (id, _) => self.fn_name(id.as_ref().map(|i| i.name.as_str()), it.span),
         };
         let kind = if matches!(it.r#type, FunctionType::FunctionDeclaration) { "declaration" } else { "expression" };
+        let binding = match (&it.id, declared) {
+            (Some(id), true) => Some(self.key_bind(id)),
+            _ => self.pending_binding.remove(&it.span.start),
+        };
         let pushed = self.add_function(name, kind, it.span, &it.params);
+        if pushed && let Some(k) = binding {
+            self.fn_bindings.push((self.facts.functions.len() - 1, k));
+        }
         self.pending_window = None;
         walk::walk_function(self, it, flags);
         if pushed {
@@ -1451,7 +1555,11 @@ impl<'a> Visit<'a> for FactVisitor<'_> {
 
     fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
         let name = self.fn_name(None, it.span);
+        let binding = self.pending_binding.remove(&it.span.start);
         let pushed = self.add_function(name, "arrow", it.span, &it.params);
+        if pushed && let Some(k) = binding {
+            self.fn_bindings.push((self.facts.functions.len() - 1, k));
+        }
         self.pending_window = None;
         walk::walk_arrow_function_expression(self, it);
         if pushed {

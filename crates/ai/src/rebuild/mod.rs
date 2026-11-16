@@ -823,6 +823,9 @@ impl Worker {
             let adapter = opts.adapters.for_backend(&entry.config.model, &entry.options);
             if let Some(host) = remote_host {
                 adapter.check_remote_tool_server(host, &self.stop)?;
+                // The settings check may be slow (one ssh read), so it follows the run's stop.
+                let stop = crate::model::Stop::for_tool(self.stop.clone());
+                adapter.check_remote_options(&entry.options, host, &stop)?;
             } else {
                 crate::cli_agents::check_builder_tools(adapter.as_ref(), &entry.config.model, &entry.options, &ws.root, &self.stop)?;
                 let program = crate::cli_agents::program_of(&entry.config, &entry.options)?;
@@ -855,8 +858,9 @@ impl Worker {
         self.editor = self.find_editor(&ws.manifest.stack)?;
         // A new build whose stack's program is missing would learn so only at its first check,
         // after a whole turn (#1837). A project already in app/ isn't stopped: the person may
-        // have moved it to another stack, which the recorded one doesn't show.
-        if !remote && stacks::toolchain_in(&ws.app_dir()).is_none() {
+        // have moved it to another stack, which the recorded one doesn't show. An API builder over
+        // SSH builds here, so only a coding agent on the other computer skips it.
+        if !study::tools_run_remotely(remote, api.is_some()) && stacks::toolchain_in(&ws.app_dir()).is_none() {
             missing_program_stop(&ws.manifest.stack, |p| craft_anything_platform::which(p).is_some())?;
         }
         let api_resumed = api.as_ref().is_some_and(crate::agent::ApiConversation::resumed);
@@ -1378,6 +1382,9 @@ impl Worker {
                 }
                 if done {
                     self.relay_read_notes(ws);
+                    for line in newly_said(&ws.inbox_dir(), &mut said) {
+                        self.emit(RunEvent::Step { step: Step::Build, text: line });
+                    }
                     self.stop.check()?;
                     // An agent-level error (sign-in, crash, limits) ends the run: checking a
                     // build that never happened would only mislead.

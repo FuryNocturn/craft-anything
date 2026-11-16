@@ -1489,6 +1489,8 @@ Updated to {version}.	Uuendatud versioonile {version}.
 Use Releases or your package manager to update this installation.	Selle paigalduse uuendamiseks kasuta Väljalaskeid või paketihaldurit.
 You're up to date.	Sul on uusim versioon.
 {version} is available.	Saadaval on {version}.
+Forget a website sign-in	Unusta veebisaidi sisselogimine
+Sign in to a website	Logi veebisaidile sisse
 Some shared files could not be hard-linked and were copied instead ({size}).	Mõnda jagatud faili ei saanud kõvasti linkida ja need kopeeriti ({size}).
 Earlier investigations	Varasemad uurimised
 Continue an earlier investigation	Jätka varasemat uurimist
