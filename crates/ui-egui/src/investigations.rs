@@ -24,7 +24,16 @@ impl CraftApp {
         self.investigations = serde_json::from_value(v["investigations"].clone()).unwrap_or_default();
     }
 
+    /// Not while an answer is being worked on: its tools would run against the investigation opened
+    /// under it. An idle conversation is ended first, so nothing of it reaches the new session.
     pub fn open_investigation(&mut self, id: &str) {
+        if self.answering() {
+            self.toast(tr("Stop the answer first, then open the investigation."), true);
+            return;
+        }
+        if let Some(mut c) = self.conversation.take() {
+            c.stop();
+        }
         self.act(OPEN_TOOL, json!({ "id": id }), tr("Open the investigation"));
     }
 

@@ -36,7 +36,7 @@ pub fn specs() -> Vec<ToolSpec> {
         ToolSpec {
             id: OPEN_TOOL,
             title: "Continue an earlier investigation",
-            summary: "Open an investigation from core_investigations_list by its id, so this session carries on with its evidence, unknowns, brief, plan, findings and journal. Evidence this session gathered without a project is saved to its own investigation first. Clean room can't open one that holds Deep-mode evidence. Refused while a project that isn't an investigation is open.",
+            summary: "Open an investigation from core_investigations_list by its id, so this session carries on with its evidence, unknowns, brief, plan, findings and journal. Work this session did without a project (evidence, a brief, a plan) is saved to its own investigation first. Clean room can't open one that holds Deep-mode evidence. Refused while a project that isn't an investigation is open.",
             beginner: "Pick up an earlier chat's investigation where it stopped.",
             toolset: Toolset::Core,
             effects: Effects::MUTATES_SESSION.union(Effects::WRITES_FILESYSTEM),
@@ -159,7 +159,9 @@ pub fn open(session: &mut Session, id: &str) -> Result<(), ToolError> {
     if session.clean_room() {
         check_clean_room(&project)?;
     }
-    if session.project.is_none() && (session.ledger_len() > 0 || session.unknowns().next().is_some()) {
+    // A brief or plan written before any evidence lives only in the session's cache: keep it too.
+    let memory = crate::tools::investigation_tools::load(session) != crate::tools::investigation_tools::Investigation::default();
+    if session.project.is_none() && (session.ledger_len() > 0 || session.unknowns().next().is_some() || memory) {
         session.ensure_shared_project()?;
     }
     session.clear_ledger();
@@ -211,7 +213,30 @@ mod tests {
         let mut s = engine.session();
         s.clear_ledger();
         s.project = None;
+        // A new chat starts with nothing in memory.
+        crate::tools::investigation_tools::cache(&mut s, Default::default());
         root.file_name().unwrap().to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn a_brief_and_plan_written_before_any_evidence_are_kept_when_switching() {
+        let dir = tempfile::tempdir().unwrap();
+        let engine = Engine::new(Session::isolated(dir.path()));
+        let first = earlier(&engine, "What does it send?", true);
+        // A new chat that has only written its brief and plan: no evidence, no project.
+        call(&engine, "core_brief_write", json!({ "question": "Who signs the updates?" })).unwrap();
+        call(&engine, "core_plan_update", json!({ "steps": [{ "title": "Find the updater", "status": "doing" }] })).unwrap();
+        assert!(engine.session().project.is_none() && engine.session().ledger_len() == 0);
+
+        call(&engine, super::OPEN_TOOL, json!({ "id": first })).unwrap();
+        let listed = call(&engine, super::LIST_TOOL, json!({})).unwrap()["investigations"].clone();
+        let kept = listed.as_array().unwrap().iter().find(|i| i["question"] == "Who signs the updates?").expect("the new chat's work is listed");
+        let id = kept["id"].as_str().unwrap().to_string();
+        call(&engine, super::OPEN_TOOL, json!({ "id": id })).unwrap();
+        let back = super::super::investigation_tools::cached(&engine.session());
+        assert_eq!(back.brief.unwrap().question, "Who signs the updates?");
+        assert_eq!(back.plan.len(), 1);
+        assert_eq!(back.plan[0].title, "Find the updater");
     }
 
     #[test]
