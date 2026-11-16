@@ -18,7 +18,7 @@ In short:
 Before you ask for review:
 
 ```sh
-cargo xtask fmt                     # cargo fmt --all, in batches Windows's command line takes
+cargo xtask fmt                     # this workspace's targets, as cargo fmt --all, in batches Windows takes
 cargo test -p <crates you touched>
 cargo clippy -p <crates> --all-targets -- -D warnings
 cargo xtask layers

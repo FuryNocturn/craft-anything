@@ -3,6 +3,11 @@
 //! `cargo fmt --all` hands rustfmt every target's root file in one command line; on Windows that
 //! passed 32,767 characters and failed with "The filename or extension is too long" (os error 206).
 //! The same files, with the same edition, go to rustfmt in batches that stay well under it.
+//!
+//! It formats the workspace members' own targets, not every local path dependency as
+//! `cargo fmt --all` may: here the only other one is the patched `vendor/wgpu-hal`, which keeps
+//! upstream's formatting and isn't held to ours. Like `cargo fmt`, it runs the rustfmt that
+//! `RUSTFMT` names, if set.
 
 use std::path::Path;
 use std::process::Command;
@@ -32,7 +37,7 @@ pub fn run(root: &Path, check: bool) -> bool {
     };
     let mut ok = true;
     for (edition, batch) in batches(&files, BATCH_CHARS) {
-        let mut cmd = Command::new("rustfmt");
+        let mut cmd = Command::new(std::env::var_os("RUSTFMT").unwrap_or_else(|| "rustfmt".into()));
         cmd.args(["--edition", &edition]);
         if check {
             cmd.arg("--check");
