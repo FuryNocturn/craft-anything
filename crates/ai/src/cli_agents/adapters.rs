@@ -148,6 +148,11 @@ pub trait AgentAdapter: Send + Sync {
     fn model_choices(&self, _config: &BackendConfig, _options: &BackendOptions) -> Result<Vec<String>, ToolError> {
         Ok(Vec::new())
     }
+    /// Whether its choices start with `default` ([`crate::anthropic::CLAUDE_CODE_DEFAULT`]): no
+    /// model is passed, so the agent uses the one its own settings name.
+    fn offers_own_default(&self) -> bool {
+        false
+    }
     /// Whether this adapter offers context and reasoning controls beyond the model selector.
     fn supports_model_tuning(&self) -> bool {
         false
@@ -388,16 +393,10 @@ const READING_TOOLS: &[&str] = &["Read", "Glob", "Grep", "LS", "NotebookRead"];
 /// (`--fork-session`) and the copy not kept, no tool server, and only Read, Glob and Grep (none in
 /// Clean room).
 fn question_args(mut a: Vec<String>, cx: &ArgsCx) -> Vec<String> {
-    a.extend([
-        "-p".into(),
-        "--output-format".into(),
-        "stream-json".into(),
-        "--verbose".into(),
-        "--append-system-prompt".into(),
-        cx.preamble.to_string(),
-        "--model".into(),
-        cx.options.cli_model.clone().unwrap_or_else(|| crate::anthropic::DEFAULT_MODEL.into()),
-    ]);
+    a.extend(["-p".into(), "--output-format".into(), "stream-json".into(), "--verbose".into(), "--append-system-prompt".into(), cx.preamble.to_string()]);
+    if let Some(model) = cx.options.cli_model.as_deref().filter(|m| !m.trim().is_empty()) {
+        a.extend(["--model".into(), model.to_string()]);
+    }
     if let Some(r) = cx.resume {
         a.extend(["--resume".into(), r.to_string(), "--fork-session".into()]);
     }
@@ -459,11 +458,17 @@ impl AgentAdapter for ClaudeCode {
     }
 
     fn model_in_use(&self, options: Option<&BackendOptions>) -> Option<String> {
-        Some(options.and_then(|options| options.cli_model.clone()).unwrap_or_else(|| crate::anthropic::DEFAULT_MODEL.into()))
+        Some(options.and_then(|options| options.cli_model.clone()).unwrap_or_else(|| "Claude Code default".into()))
     }
 
     fn model_choices(&self, _config: &BackendConfig, _options: &BackendOptions) -> Result<Vec<String>, ToolError> {
-        Ok(crate::anthropic::MODELS.iter().map(|model| model.to_string()).collect())
+        let mut models = vec![crate::anthropic::CLAUDE_CODE_DEFAULT.to_string()];
+        models.extend(crate::anthropic::MODELS.iter().map(|model| model.to_string()));
+        Ok(models)
+    }
+
+    fn offers_own_default(&self) -> bool {
+        true
     }
 
     fn args(&self, cx: &ArgsCx) -> Vec<String> {
@@ -473,9 +478,11 @@ impl AgentAdapter for ClaudeCode {
         }
         let mcp_json = json!({"mcpServers": {MCP_NAME: {"command": cx.mcp.command, "args": cx.mcp.args}}}).to_string();
         a.extend(["-p".into(), "--output-format".into(), "stream-json".into(), "--verbose".into(), "--append-system-prompt".into(), cx.preamble.to_string()]);
-        // Opus 5.5 everywhere unless config.toml names another model on purpose; the effort
-        // goes in through the environment (see `run_cli`).
-        a.extend(["--model".into(), cx.options.cli_model.clone().unwrap_or_else(|| crate::anthropic::DEFAULT_MODEL.into())]);
+        // Omit --model unless config.toml names one: users may have custom models configured in
+        // Claude Code, and forcing a hardcoded default blocks them.
+        if let Some(model) = cx.options.cli_model.as_deref().filter(|m| !m.trim().is_empty()) {
+            a.extend(["--model".into(), model.to_string()]);
+        }
         if let Some(r) = cx.resume {
             a.extend(["--resume".into(), r.to_string()]);
         }
@@ -538,12 +545,22 @@ impl AgentAdapter for ClaudeCode {
                     });
                 }
             }
+            // Each turn reports its plan's limits; `rejected` means this one was refused by them.
+            "rate_limit_event" => {
+                let info = v.get("rate_limit_info");
+                if info.and_then(|i| i.get("status")).and_then(Value::as_str) == Some("rejected") {
+                    let kind = info.and_then(|i| i.get("rateLimitType")).and_then(Value::as_str).unwrap_or_default().to_string();
+                    p.plan_limit = Some((kind, info.and_then(|i| i.get("resetsAt")).and_then(Value::as_u64)));
+                }
+            }
             "assistant" => {
                 if let Some(code) = v.get("error").and_then(Value::as_str) {
-                    let failure = TurnFailure::claude(code);
+                    let plan_limit = if code == "rate_limit" { p.plan_limit.clone() } else { None };
+                    let failure = if plan_limit.is_some() { TurnFailure::new(FailureKind::UsageLimit) } else { TurnFailure::claude(code) };
                     p.failure = Some(failure);
                     let why = v.pointer("/message/content").map(content_text).unwrap_or_else(|| code.to_string());
                     let (message, hint) = claude_code_failure_in(&why, self.folder.as_deref());
+                    let hint = plan_limit.map(|(kind, at)| plan_limit_fix(&kind, at, unix_now())).or(hint);
                     let remediation = hint.or_else(|| match failure.kind {
                         FailureKind::Authentication => self.sign_in_fix(),
                         FailureKind::Billing => Some("Check the account's credits, plan and spending limit before trying again.".into()),
@@ -599,6 +616,9 @@ impl AgentAdapter for ClaudeCode {
                     p.failure.get_or_insert(TurnFailure::new(FailureKind::Unknown));
                     let why = if s("result").is_empty() { s("subtype") } else { s("result") };
                     let (message, remediation) = claude_code_failure_in(&why, self.folder.as_deref());
+                    // The run keeps the turn's last error: a used-up plan limit keeps saying when it resets.
+                    let plan_limit = p.failure.filter(|f| f.kind == FailureKind::UsageLimit).and(p.plan_limit.clone());
+                    let remediation = plan_limit.map(|(kind, at)| plan_limit_fix(&kind, at, unix_now())).or(remediation);
                     out.push(AgentEvent::Error { message, remediation, log: None });
                 }
             }
@@ -880,6 +900,29 @@ impl AgentAdapter for Codex {
         Some("Run the selected Codex program with `login` in a terminal, choose Sign in with ChatGPT, then test it again in Settings → AI.".into())
     }
 
+    fn model_in_use(&self, options: Option<&BackendOptions>) -> Option<String> {
+        Some(options.and_then(|options| options.cli_model.clone()).unwrap_or_else(|| "Codex default".into()))
+    }
+
+    /// Codex's own catalogue (`codex debug models`): the models it lists rather than hides, after
+    /// its default (#2109).
+    fn model_choices(&self, config: &BackendConfig, options: &BackendOptions) -> Result<Vec<String>, ToolError> {
+        let program = super::program_of(config, options)?;
+        let ask = [program, "debug".into(), "models".into()];
+        let p = match config.ssh_host.as_deref().filter(|h| !h.trim().is_empty()) {
+            Some(h) => Process::new("ssh").args(crate::ssh::ssh_args(h, &ask)),
+            None => Process::new(&ask[0]).args(&ask[1..]),
+        };
+        let out = p.timeout(Duration::from_secs(15)).stdout_cap(8 * 1024 * 1024).run_checked()?;
+        let mut models = vec![crate::anthropic::CLAUDE_CODE_DEFAULT.to_string()];
+        models.extend(codex_models(&out.stdout_text()));
+        Ok(models)
+    }
+
+    fn offers_own_default(&self) -> bool {
+        true
+    }
+
     /// `codex exec -` reads the message from stdin, so a long one can't pass Windows'
     /// command-line limit (os error 206, #528).
     fn prompt_on_stdin(&self) -> bool {
@@ -1007,6 +1050,27 @@ impl AgentAdapter for Codex {
         }
         out
     }
+}
+
+/// The models `codex debug models` lists for people to pick (`visibility: "list"`), in its own
+/// order (`priority`). Output it can't read lists none, so only the default is offered.
+fn codex_models(json: &str) -> Vec<String> {
+    #[derive(serde::Deserialize)]
+    struct Catalog {
+        models: Vec<Entry>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Entry {
+        slug: String,
+        #[serde(default)]
+        visibility: String,
+        #[serde(default)]
+        priority: i64,
+    }
+    let Ok(mut c) = serde_json::from_str::<Catalog>(json) else { return Vec::new() };
+    c.models.retain(|m| m.visibility == "list" && !m.slug.trim().is_empty());
+    c.models.sort_by_key(|m| m.priority);
+    c.models.into_iter().map(|m| m.slug).collect()
 }
 
 /// Unknown output (including future CLI formats) is not a claim that the account is connected.
@@ -1247,6 +1311,30 @@ pub(super) fn remote_failure(host: &str, out: &craft_anything_platform::Output) 
         } else {
             format!("ssh said: {snippet}")
         })
+}
+
+#[cfg(test)]
+mod codex_model_tests {
+    use super::{AgentAdapter, Codex, codex_models};
+
+    /// #2109: Settings offers Codex's listed models in its own order, not the hidden ones, after
+    /// its default, and shows the default until one is chosen.
+    #[test]
+    fn codex_offers_the_models_its_catalogue_lists() {
+        let json = r#"{"models":[
+            {"slug":"hidden-reviewer","visibility":"hide","priority":1},
+            {"slug":"second","visibility":"list","priority":4,"display_name":"Second"},
+            {"slug":"first","visibility":"list","priority":2},
+            {"slug":"","visibility":"list","priority":3}
+        ]}"#;
+        assert_eq!(codex_models(json), ["first", "second"]);
+        assert!(codex_models("not json").is_empty(), "unreadable output lists none: only the default is offered");
+        assert!(codex_models(r#"{"models":[{"visibility":"list"}]}"#).is_empty(), "an entry without a slug");
+        assert!(Codex.offers_own_default());
+        assert_eq!(Codex.model_in_use(None).as_deref(), Some("Codex default"));
+        let chosen = crate::BackendOptions { cli_model: Some("first".into()), ..Default::default() };
+        assert_eq!(Codex.model_in_use(Some(&chosen)).as_deref(), Some("first"));
+    }
 }
 
 #[cfg(test)]
