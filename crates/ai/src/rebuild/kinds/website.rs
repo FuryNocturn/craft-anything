@@ -416,7 +416,8 @@ impl StructureLikeness {
 /// What the build gets wrong that the original doesn't, from both captures' `health` and `a11y`:
 /// script and console errors, requests that fail (compared by path, since the build is served
 /// from elsewhere), and controls without a name, pictures without alt text or a missing page
-/// language. Problems the original has too aren't the build's to fix.
+/// language. Problems the original has too aren't the build's to fix (the accessibility floor,
+/// [`super::a11y_floor`], is how the person holds the build to more).
 pub fn health_notes(original: &Value, built: &Value) -> Vec<String> {
     let mut out = Vec::new();
     let new_errors = new_errors(original, built);
@@ -518,7 +519,7 @@ pub fn page_claims(page: &str, original: &Value, built: &Value) -> Vec<Claim> {
 /// A `#rrggbb` or `#rrggbbaa` colour as (r, g, b, a).
 fn rgba(c: &str) -> Option<[u8; 4]> {
     let h = c.strip_prefix('#')?;
-    let byte = |i: usize| h.get(i..i + 2).and_then(|x| u8::from_str_radix(x, 16).ok());
+    let byte = |i: usize| h.get(i..i + 2).filter(|x| x.bytes().all(|b| b.is_ascii_hexdigit())).and_then(|x| u8::from_str_radix(x, 16).ok());
     match h.len() {
         6 => Some([byte(0)?, byte(2)?, byte(4)?, 255]),
         8 => Some([byte(0)?, byte(2)?, byte(4)?, byte(6)?]),
@@ -788,7 +789,8 @@ impl Check for WebVisualCheck {
 
     fn run(&self, cx: &mut CheckCx) -> Result<CheckResult, ToolError> {
         let (ws, round) = (cx.ws, cx.round);
-        let widths = cx.build_settings().widths();
+        let settings = cx.build_settings();
+        let widths = settings.widths();
         let Some(site) = site_dir(&ws.app_dir()) else {
             return Ok(CheckResult::new(self.id(), round, false, missing_site_note(ws.app_place(), app_is_empty(ws))));
         };
@@ -819,6 +821,10 @@ impl Check for WebVisualCheck {
             }
             cx.call("web_site_open", json!({"url": url, "settle_ms": 1200, "signed_in": false}))?;
             cx.call("web_site_capture", json!({"output_directory": built.display().to_string(), "include_html": false, "widths": widths}))?;
+            // The floor judges the build alone, so it holds even where the original can't be compared.
+            let page = if dir.is_empty() { "The start page".to_string() } else { name.clone() };
+            let built_capture = read_json(&built.join("capture.json"));
+            claims.extend(built_capture.as_ref().and_then(|b| super::a11y_floor::floor_claim(&page, b, &settings)));
             let mut per_width = Vec::new();
             for &w in &widths {
                 let (a, b) = (original.join(format!("screenshot-{w}.png")), built.join(format!("screenshot-{w}.png")));
@@ -847,8 +853,7 @@ impl Check for WebVisualCheck {
                 .join("; ");
             // The page's words, parts and measured design too: a build can look alike and still
             // miss words, or get the padding, colours and fonts wrong at some width.
-            let page = if dir.is_empty() { "The start page".to_string() } else { name.clone() };
-            let text = match (read_json(&original.join("capture.json")), read_json(&built.join("capture.json"))) {
+            let text = match (read_json(&original.join("capture.json")), built_capture) {
                 (Some(o), Some(b)) => {
                     claims.extend(page_claims(&page, &o, &b));
                     [text_likeness(&o, &b).map(|t| t.note()), structure_likeness(&o, &b).map(|s| s.note())]
@@ -886,6 +891,14 @@ impl Check for WebVisualCheck {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rgba_rejects_non_hex_digits() {
+        for bad in ["#+1+2+3", "#-1-2-3", "#+1+2+3ff", "#12345g"] {
+            assert_eq!(rgba(bad), None, "{bad}");
+        }
+        assert_eq!(rgba("#0a0B0c"), Some([10, 11, 12, 255]));
+    }
 
     /// #736: an empty app/ is said to be empty, so a builder that claims a build can't hide it; a
     /// folder with files, or a project folder (which always holds the workspace's own), isn't.

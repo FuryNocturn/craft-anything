@@ -428,7 +428,8 @@ fn signed_in_true_with_nothing_saved_names_the_sign_in_tool() {
 
 #[test]
 fn a_sign_in_needs_a_desktop_and_a_sane_wait() {
-    if cfg!(target_os = "linux") {
+    // Every Unix desktop but macOS's needs X11 or Wayland: FreeBSD's as well as Linux's.
+    if cfg!(all(unix, not(target_os = "macos"))) {
         let e = no_display_error(None, Some(" ".into())).unwrap();
         assert_eq!(e.code, ErrorCode::NotSupported);
         assert!(e.remediation.unwrap_or_default().contains("screen"));
@@ -496,7 +497,8 @@ fn opening_a_site_with_a_saved_sign_in_starts_from_a_copy() {
     for p in [json!({"url": "https://example.com/", "signed_in": false, "timeout_secs": 30}), json!({"url": "https://www.example.com/", "timeout_secs": 30})] {
         let (args, listing, _) = open(p.clone());
         assert!(!listing.contains("Cookies"), "{p}: {listing}");
-        assert!(!args.contains("--password-store"), "the private path keeps its flags: {args}");
+        assert!(!args.contains("--profile-directory") && !args.contains("--restore-last-session"), "the private path keeps its flags: {args}");
+        assert_eq!(args.contains("--password-store=basic"), cfg!(target_os = "linux"), "no keyring prompt outside a desktop session (#2264): {args}");
     }
 }
 

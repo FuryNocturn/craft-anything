@@ -9,6 +9,12 @@ pub(super) fn is_electron_runtime(program: &Path) -> bool {
     program.parent().is_some_and(|dir| dir.join("resources/app.asar").is_file())
 }
 
+/// Whether runtime study may start the program: only one this computer can start. A Windows `.exe`
+/// found in a game's folder on Linux or macOS is studied ([`studies_as_program`]), never started.
+pub(super) fn may_start(program: &Path) -> bool {
+    program.is_file() && is_program(program)
+}
+
 /// The program a later run reopens for its builder: the one the study looked at, in Deep mode on a
 /// local target, when it is still there. None otherwise (Clean room never opens the original).
 pub(super) fn program_to_reopen(target: &TargetRef, kind: &dyn TargetKind, deep: bool) -> Option<PathBuf> {
@@ -158,7 +164,7 @@ impl Worker {
                 std::fs::create_dir_all(&capture).map_err(|e| ToolError::io(capture.display(), e))?;
                 let runtime = self.engine.session().settings.runtime_study;
                 let mut console = false;
-                if runtime && program.is_file() && kinds::runs::is_console(&program) {
+                if runtime && may_start(&program) && kinds::runs::is_console(&program) {
                     // A console program draws no window: run it with each input instead.
                     self.step(ws, Step::Study, Status::Inspecting, "Running it with a few inputs to see what it prints…")?;
                     if let Some(section) = self.capture_runs(&program, &capture)? {
@@ -166,7 +172,7 @@ impl Worker {
                         console = true;
                     }
                 }
-                if !console && runtime && program.is_file() && is_program(&program) {
+                if !console && runtime && may_start(&program) {
                     notes.push_str(&self.picture_window(ws, &program, &capture)?);
                 }
                 craft_anything_engine::project::write_atomic(&capture.join("README.md"), notes.as_bytes())?;
@@ -240,7 +246,7 @@ impl Worker {
             path.display()
         );
         let runtime = self.engine.session().settings.runtime_study;
-        if runtime && path.is_file() && is_program(path) {
+        if runtime && may_start(path) {
             notes.push_str(&self.picture_window(ws, path, &capture)?);
         }
         craft_anything_engine::project::write_atomic(&capture.join("README.md"), notes.as_bytes())
@@ -319,10 +325,11 @@ impl Worker {
     /// Deep mode with Ghidra installed: run Ghidra's one-time analysis of `program` on its own
     /// thread; the receiver gets its result. The builder's tools share the analysis (waiting for it
     /// rather than starting another), and it carries on if the person pauses, so nothing is lost.
-    /// It stops once `project`'s record is gone: a deleted project needs it no more (#948).
+    /// It stops once `project` is deleted or the person stops it, and isn't started for a project
+    /// it was stopped for until a new request (#948).
     pub(super) fn prepare_ghidra(&self, program: &Path, project: &Path) -> Option<Receiver<Result<(), String>>> {
         // A folder (nothing in it recognised as the program) isn't something Ghidra can open.
-        if !program.is_file() || is_electron_runtime(program) {
+        if !program.is_file() || is_electron_runtime(program) || craft_anything_engine::tools::deep::stopped(project) {
             return None;
         }
         let settings = {
@@ -333,7 +340,7 @@ impl Worker {
             s.settings.clone()
         };
         let program = program.to_path_buf();
-        let record = project.join(craft_anything_engine::workspace::MANIFEST);
+        let project = project.to_path_buf();
         let (tx, rx) = std::sync::mpsc::channel();
         let (feed, events, wake) = (self.feed.clone(), self.tx.clone(), self.wake.clone());
         std::thread::Builder::new()
@@ -350,10 +357,7 @@ impl Worker {
                             emit_event(&feed, &events, &wake, RunEvent::Step { step: Step::Study, text: m.to_string() });
                         }
                     };
-                    craft_anything_engine::tools::deep::prepare(&settings, &bytes, &sha, &said, &|| {
-                        // Only a record known to be gone: a drive that can't be read for a moment isn't a delete.
-                        matches!(record.try_exists(), Ok(false))
-                    })
+                    craft_anything_engine::tools::deep::prepare(&settings, &bytes, &sha, &project, &said)
                 });
                 if let Err(e) = &result {
                     log::warn!("Ghidra's analysis of {} failed: {e}", program.display());
