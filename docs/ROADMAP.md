@@ -1343,6 +1343,9 @@ Owner: open · Status: in progress
       for `--screenshot` or held to the app-screenshot check, which can't start a static site;
       it's checked by building, as a website made from a request is (#1758)
       — claimed: FuryNocturn, branch bugfix/r2.7-app-rebuilt-as-site
+- [ ] An app rebuilt as a website is checked against the original app: the built site is served
+      and photographed in the browser, as the website checks do, then compared with
+      `capture/window.png` and `ui-tree.json` (#1758)
 
 ### R2.8 Clean room means clean room
 Owner: maintainers · Status: in progress
