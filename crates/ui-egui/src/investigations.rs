@@ -72,7 +72,7 @@ pub fn section(app: &mut CraftApp, ui: &mut Ui, fold: bool) {
         })
         .inner;
     let what = if shown { "Hide earlier investigations" } else { "Show earlier investigations" };
-    let r = r.on_hover_text(tr(what));
+    let r = r.on_hover_text(if shown { tr("Hide earlier investigations") } else { tr("Show earlier investigations") });
     widgets::named(r.clone(), what);
     if r.clicked() {
         app.state.investigations_shown = !shown;

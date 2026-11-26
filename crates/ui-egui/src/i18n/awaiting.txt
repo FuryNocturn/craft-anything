@@ -6,3 +6,15 @@ Requests per minute
 Set request rate
 Set to 0 for no limit.
 Enter a whole number, or 0 for no limit.
+Earlier investigations
+Continue an earlier investigation
+Read earlier investigations
+Open the investigation
+Stop the answer first, then open the investigation.
+Carrying on with an earlier investigation: {question}
+Carrying on with an earlier investigation.
+Hide earlier investigations
+Show earlier investigations
+Investigation
+{when} · {evidence} evidence records · {findings} findings
+Couldn't open that investigation.

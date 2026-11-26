@@ -1057,7 +1057,10 @@ impl CraftApp {
             ("rebuild_question_ask", r) => self.question_done(r),
             (investigation_history::LIST_TOOL, Ok(v)) => self.investigations_listed(&v),
             (investigation_history::OPEN_TOOL, Ok(v)) => self.investigation_opened(&v),
-            (investigation_history::OPEN_TOOL, Err(e)) => self.toast(format!("{} {}", tr("Couldn't open that investigation."), e.for_people()), true),
+            (investigation_history::OPEN_TOOL, Err(e)) => {
+                let what = tr("Couldn't open that investigation.");
+                self.toast(format!("{what} {}", e.for_people()), true)
+            }
             ("project_build_finish", Ok(v)) => {
                 if let Some(ws) = self.workspace.as_mut().filter(|w| v["project"].as_str().is_some_and(|p| w.root == std::path::Path::new(p))) {
                     let _ = ws.reload();
